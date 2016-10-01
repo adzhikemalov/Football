@@ -17,6 +17,23 @@ public class Leg : MonoBehaviour {
         }
     }
 
+    public void OnCollisionEnter2D(Collision2D collision)
+    {
+        if (collision.gameObject.tag == "Grass")
+        {
+            _onGround = true;
+        }
+    }
+
+    public void OnCollisionExit2D(Collision2D collision)
+    {
+        if (collision.gameObject.tag == "Grass")
+        {
+            _onGround = false;
+        }
+    }
+
+
     void Start()
     {
         _joint = GetComponent<HingeJoint2D>();
@@ -28,23 +45,7 @@ public class Leg : MonoBehaviour {
         _motorIdle.motorSpeed = 700;
         _motorIdle.maxMotorTorque = 10;
     }
-
-    void OnCollisionEnter2D(Collision2D coll)
-    {
-        if (coll.gameObject.name == "Grass") ;
-        {
-            _onGround = true;
-        }
-    }
-
-    void OnCollisionExit2D(Collision2D coll)
-    {
-        if (coll.gameObject.name == "Grass") ;
-        {
-            _onGround = false;
-        }
-    }
-
+    
     public void Hit()
     {
         _joint.motor = _motorHit;

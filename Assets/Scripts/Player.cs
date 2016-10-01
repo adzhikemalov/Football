@@ -6,9 +6,13 @@ using System.Runtime.CompilerServices;
 
 public class Player : MonoBehaviour
 {
-    public GameObject HeadGameObject;
-    public int JumpPower = 400;
-    public int VstankaPower = 0;
+    [Header("Physics parameters")]
+    public int JumpPower = 10;
+    public Vector2 OnGrroundCenterOfMass;
+    public Vector2 JumpCenterOfMass;
+    public bool ChangeCenterOfMass;
+
+    [Header("Legs")]
     public GameObject ActiveLeg;
     public GameObject InatciveLeg;
 
@@ -18,10 +22,14 @@ public class Player : MonoBehaviour
     private Leg _inAcitveLegComponent;
     private Rigidbody2D _rigidbody;
 
+    public bool CanJump
+    {
+        get { return OnGround; }
+    }
 	void Start ()
 	{
-        _headSprite = HeadGameObject.GetComponent<SpriteRenderer>();
 	    _rigidbody = GetComponent<Rigidbody2D>();
+	    _rigidbody.useAutoMass = false;
         if (ActiveLeg != null && InatciveLeg != null)
         {
             Physics2D.IgnoreCollision(ActiveLeg.GetComponent<Collider2D>(), InatciveLeg.GetComponent<Collider2D>());
@@ -29,67 +37,60 @@ public class Player : MonoBehaviour
             _inAcitveLegComponent = InatciveLeg.GetComponent<Leg>();
         }
 	}
+    
+    public bool OnGround {
+        get
+        {
+            return _inAcitveLegComponent != null && (_acitveLegComponent != null && ( _acitveLegComponent.OnGround || _inAcitveLegComponent.OnGround));
+        }
+    }
 
-    void OnCollisionEnter2D(Collision2D coll)
+    public void OnCollisionEnter2D(Collision2D collision)
     {
-        if (coll.gameObject.name == "Grass");
+        if (collision.gameObject.tag == "Grass")
         {
             _onGround = true;
         }
     }
 
-    void OnCollisionExit2D(Collision2D coll)
+    public void OnCollisionExit2D(Collision2D collision)
     {
-        if (coll.gameObject.name == "Grass");
+        if (collision.gameObject.tag == "Grass")
         {
             _onGround = false;
         }
     }
 
-    public bool OnGround {
-        get
-        {
-            return _onGround || _acitveLegComponent.OnGround || _inAcitveLegComponent.OnGround;
-        }
-    }
-    
-
     void OnDrawGizmos()
     {
-//        Gizmos.color = Color.red;
-//        Gizmos.DrawLine(new Vector3(0,0,0), new Vector3(10, 0, 0));
+        if (CanJump)
+            Gizmos.color = Color.cyan;
+        else
+            Gizmos.color = Color.red;
+        Gizmos.DrawSphere(transform.TransformPoint(GetCenterOffMass()), 0.1f);
     }
 
-    public float stability = 0.3f;
-    public float speed = 2.0f;
-    void AddStandPower()
+    public void UpdateCenterOfMass()
     {
-        var angleBetween = Vector3.Angle(transform.up, Vector2.right);
-        var multiplier = 1;
-        if (OnGround)
-        {
-            if (angleBetween > 120)
-            {
-                multiplier = 1;
-            }
-            else if (angleBetween < 70)
-            {
-                multiplier = -1;
-            }
-        }
-
+        var result = GetCenterOffMass();
+        if (result != (Vector3)_rigidbody.centerOfMass)
+            _rigidbody.centerOfMass = result;
     }
 
+    private Vector3 GetCenterOffMass()
+    {
+        if (CanJump)
+          return OnGrroundCenterOfMass;
+        return JumpCenterOfMass;
+    }
+    
+    public bool Jump;
 	void Update ()
 	{
-	    AddStandPower();
 	    if (Input.GetKeyDown(KeyCode.W))
 	    {
-	        if (CanJump)
-	        {
-                _rigidbody.AddForce(transform.up * JumpPower);
-	        }
-	        _acitveLegComponent.Hit();
+            Jump = true;
+            _acitveLegComponent.Hit();
 	    }
 	    if (Input.GetKeyUp(KeyCode.W))
         {
@@ -97,12 +98,16 @@ public class Player : MonoBehaviour
 	    }
 	}
 
-    public bool CanJump
+    void FixedUpdate()
     {
-        get
+        if (ChangeCenterOfMass)
+            UpdateCenterOfMass();
+
+        if (Jump)
         {
-            var angleBetween = Vector3.Angle(transform.up, Vector2.right);
-            return OnGround && (angleBetween < 100 || angleBetween > 80);
+            _rigidbody.AddForce(transform.up * JumpPower);
+            Jump = false;
         }
     }
+    
 }
