@@ -1,6 +1,8 @@
 Library/*
 Temp/*
 obj/*
+footClient/FootClient/Library/*
+footClient/FootClient/Temp/*
 *.csproj
 *.sln
 *.pidb
