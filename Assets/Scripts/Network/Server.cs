@@ -2,27 +2,36 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Networking;
+using UnityEngine.Networking.NetworkSystem;
 
 public class Server : MonoBehaviour
 {
-    public NetworkServerSimple server;
-    public int serverPort = 9999;
-    public int maxConnections = 2;
+    public int ServerPort = 9999;
     public GameObject PlayerPrefab;
+    public GameObject GoalKeeperPrefab;
+
+    private NetworkServerSimple _server;
     private List<PlayerData> _players;
+
+    public GameObject GoalKeeperSpawnPoint1;
+    public GameObject GoalKeeperSpawnPoint2;
+    public GameObject PlayerSpawnPoint1;
+    public GameObject PlayerSpawnPoint2;
+
+    private bool _playerSwap;
+
     public void Start()
     {
         _players = new List<PlayerData>();
-        server = new NetworkServerSimple();
-        server.RegisterHandler(MsgType.Connect, OnConnect);
-        server.RegisterHandler(MsgType.Disconnect, OnDisconnect);
-        server.RegisterHandler(WorldMessage.PlayerInput, OnPlayerInput);
-        server.Listen(serverPort);
+        _server = new NetworkServerSimple();
+        _server.RegisterHandler(MsgType.Connect, OnConnect);
+        _server.RegisterHandler(MsgType.Disconnect, OnDisconnect);
+        _server.RegisterHandler(WorldMessage.PlayerInput, OnPlayerInput);
+        _server.Listen(ServerPort);
     }
 
     private void OnPlayerInput(NetworkMessage netmsg)
     {
-        Debug.Log("PlayerId:"+netmsg.conn.connectionId);
         var message = netmsg.ReadMessage<WorldMessage>();
         for (int i = 0; i < _players.Count; i++)
         {
@@ -46,7 +55,7 @@ public class Server : MonoBehaviour
     {
         if (_players == null) return;
         _tick++;
-        server.Update();
+        _server.Update();
 
         var message = new WorldMessage {};
         message.Players = new string[_players.Count];
@@ -63,16 +72,43 @@ public class Server : MonoBehaviour
 
     private void OnDisconnect(NetworkMessage netmsg)
     {
-        Debug.Log("client disconnected");
+        if (_players.Count > 1)
+        {
+            Debug.Log("Full");
+            return;
+        }
+
+        for (int i = 0; i < _players.Count; i++)
+        {
+            var player = _players[i];
+            if (player.Connection.connectionId == netmsg.conn.connectionId)
+            {
+                RemovePlayer(_players[i]);
+            }
+        }
+    }
+
+    private void RemovePlayer(PlayerData player)
+    {
+        Destroy(player.Player.gameObject);
+        Destroy(player.GoalKeeper.gameObject);
+        _players.Remove(player);
     }
 
     private void OnConnect(NetworkMessage netmsg)
     {
-        Debug.Log("client connected");
         var player = GameObject.Instantiate(PlayerPrefab);
+        player.transform.position = _playerSwap ? PlayerSpawnPoint1.transform.position : PlayerSpawnPoint2.transform.position;
         var playerScr = player.GetComponent<Player>();
         playerScr.Id = netmsg.conn.connectionId;
+
+        var goalKeeper = Instantiate(GoalKeeperPrefab);
+        var goalKeeperScr = goalKeeper.GetComponent<Player>();
+        goalKeeper.transform.position = _playerSwap ? GoalKeeperSpawnPoint1.transform.position : GoalKeeperSpawnPoint2.transform.position;
+        goalKeeperScr.Id = netmsg.conn.connectionId;
+
         _players.Add(new PlayerData{Connection = netmsg.conn, Id = netmsg.conn.connectionId, Player = playerScr});
+        _playerSwap = !_playerSwap;
     }
 
     public class PlayerData
@@ -80,6 +116,7 @@ public class Server : MonoBehaviour
         public NetworkConnection Connection;
         public int Id;
         public Player Player;
+        public Player GoalKeeper;
     }
 
     public class WorldMessage : MessageBase

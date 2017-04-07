@@ -9,14 +9,6 @@ public class GatesTrigger : MonoBehaviour {
 	}
 
 
-    void OnTriggerEnter2D(Collider2D coll)
-    {
-        if (coll.gameObject.name == "Ball") ;
-        {
-
-        }
-    }
-	
 	// Update is called once per frame
 	void Update () {
 	

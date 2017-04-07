@@ -4,11 +4,18 @@ using System.Collections;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
-public class Leg : MonoBehaviour {
+public class Leg : MonoBehaviour
+{
+    public bool IsActive;
+    public bool Flip;
+    public int MaxMotorTorque;
+    public int MotorSpeed;
     private bool _onGround;
     private HingeJoint2D _joint;
     private JointMotor2D _motorHit;
     private JointMotor2D _motorIdle;
+    private JointAngleLimits2D _activeLimits;
+    private JointAngleLimits2D _passiveLimits;
 
     public bool OnGround {
         get
@@ -36,14 +43,34 @@ public class Leg : MonoBehaviour {
 
     void Start()
     {
-        _joint = GetComponent<HingeJoint2D>();
-        _motorHit = new JointMotor2D();
-        _motorHit.motorSpeed = -700;
-        _motorHit.maxMotorTorque = 10;
+        _activeLimits = new JointAngleLimits2D { min = Flip ? 90 : -90, max = 0 };
+        _passiveLimits = new JointAngleLimits2D{min = 0, max = 0};
 
-        _motorIdle = new JointMotor2D();
-        _motorIdle.motorSpeed = 700;
-        _motorIdle.maxMotorTorque = 10;
+        _joint = GetComponent<HingeJoint2D>();
+        if (IsActive)
+        {
+            _joint.limits = _activeLimits;
+
+            _motorHit = new JointMotor2D();
+            _motorHit.motorSpeed = Flip ? MotorSpeed : -MotorSpeed;
+            _motorHit.maxMotorTorque = MaxMotorTorque;
+
+            _motorIdle = new JointMotor2D();
+            _motorIdle.motorSpeed = Flip ? -MotorSpeed : MotorSpeed; ;
+            _motorIdle.maxMotorTorque = MaxMotorTorque;
+        }
+        else
+        {
+            _joint.limits = _passiveLimits;
+
+            _motorHit = new JointMotor2D();
+            _motorHit.motorSpeed = MotorSpeed;
+            _motorHit.maxMotorTorque = MaxMotorTorque;
+
+            _motorIdle = new JointMotor2D();
+            _motorIdle.motorSpeed = -MotorSpeed;
+            _motorIdle.maxMotorTorque = MaxMotorTorque;
+        }
     }
     
     public void Hit()

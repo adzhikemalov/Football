@@ -80,12 +80,10 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Assets\Scripts\DummyPlayer.cs" />
     <Compile Include="Assets\Scripts\FieldManager.cs" />
     <Compile Include="Assets\Scripts\Game.cs" />
     <Compile Include="Assets\Scripts\GatesTrigger.cs" />
     <Compile Include="Assets\Scripts\Leg.cs" />
-    <Compile Include="Assets\Scripts\NetManager.cs" />
     <Compile Include="Assets\Scripts\Network\Server.cs" />
     <Compile Include="Assets\Scripts\Player.cs" />
   </ItemGroup>
