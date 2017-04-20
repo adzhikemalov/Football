@@ -24,7 +24,7 @@ public class Player : MonoBehaviour
     public bool Flip;
     public bool Goalkeper;
 
-    public string Key;
+    public KeyCode Key;
     public int Id;
     public bool Jump;
     public bool PressedJump;
@@ -119,23 +119,8 @@ public class Player : MonoBehaviour
 
 	void Update ()
 	{
-	    var keyCode = KeyCode.A;
-	    switch (Key)
-	    {
-	        case "A":
-	            keyCode = KeyCode.A;
-                break;
-            case "S":
-	            keyCode = KeyCode.S;
-                break;
-	        case "K":
-	            keyCode = KeyCode.K;
-                break;
-            case "L":
-	            keyCode = KeyCode.L;
-                break;
-	    }
-
+	    var keyCode = Key;
+	    
         if (Input.GetKeyDown(keyCode))
 	    {
 	        PressedJump = true;

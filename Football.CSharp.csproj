@@ -80,11 +80,12 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Assets\Scripts\FieldManager.cs" />
     <Compile Include="Assets\Scripts\Game.cs" />
     <Compile Include="Assets\Scripts\GatesTrigger.cs" />
     <Compile Include="Assets\Scripts\Leg.cs" />
+    <Compile Include="Assets\Scripts\Network\Protocol.cs" />
     <Compile Include="Assets\Scripts\Network\Server.cs" />
+    <Compile Include="Assets\Scripts\Network\User.cs" />
     <Compile Include="Assets\Scripts\Player.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath)\SyntaxTree\UnityVS\2013\UnityVS.CSharp.targets" />

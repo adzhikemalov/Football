@@ -9,6 +9,7 @@ public class GatesTrigger : MonoBehaviour {
 	}
 
 
+
 	// Update is called once per frame
 	void Update () {
 	
