@@ -3,6 +3,7 @@ using UnityEngine;
 using System.Collections;
 using System.Runtime.CompilerServices;
 using System.Text;
+using UnityEditor;
 
 public class Player : MonoBehaviour
 {
@@ -16,7 +17,12 @@ public class Player : MonoBehaviour
     public GameObject ActiveLeg;
     public GameObject InatciveLeg;
 
+    [Header("Hands")]
+    public GameObject LeftHand;
+    public GameObject RightHand;
+
     public bool Flip;
+    public bool Goalkeper;
 
     public string Key;
     public int Id;
@@ -32,13 +38,20 @@ public class Player : MonoBehaviour
 	{
 	    _rigidbody = GetComponent<Rigidbody2D>();
 	    _rigidbody.useAutoMass = false;
-	    _rigidbody.mass = 30;
 
         if (ActiveLeg != null && InatciveLeg != null)
         {
             Physics2D.IgnoreCollision(ActiveLeg.GetComponent<Collider2D>(), InatciveLeg.GetComponent<Collider2D>());
             _acitveLegComponent = ActiveLeg.GetComponent<Leg>();
             _inAcitveLegComponent = InatciveLeg.GetComponent<Leg>();
+
+            if (Goalkeper)
+            {
+                RightHand.GetComponent<HingeJoint2D>().enabled = false;
+                LeftHand.GetComponent<HingeJoint2D>().enabled = false;
+                RightHand.GetComponent<FixedJoint2D>().enabled = true;
+                LeftHand.GetComponent<FixedJoint2D>().enabled = true;
+            }
 
             if (Flip)
             {
@@ -48,6 +61,16 @@ public class Player : MonoBehaviour
             }
         }
 	}
+
+    public Leg GetActiveLeg
+    {
+        get { return Flip ? _inAcitveLegComponent : _acitveLegComponent; }
+    }
+
+    public Leg GetInActiveLeg
+    {
+        get { return Flip ? _acitveLegComponent : _inAcitveLegComponent; }
+    }
 
     public bool OnGround {
         get
@@ -65,10 +88,14 @@ public class Player : MonoBehaviour
                    (!_acitveLegComponent.OnGround && _inAcitveLegComponent.OnGround);
         }
     }
-
+    
     void OnDrawGizmos()
     {
-        if (OneLegOnGround)
+
+#if UNITY_EDITOR
+        if (!EditorApplication.isPlaying) return;
+#endif
+            if (OneLegOnGround || (GetInActiveLeg.OnGround && GetActiveLeg.isHit))
             Gizmos.color = Color.cyan;
         else
             Gizmos.color = Color.red;
@@ -83,6 +110,8 @@ public class Player : MonoBehaviour
 
     private Vector3 GetCenterOffMass()
     {
+        if (GetInActiveLeg.OnGround && GetActiveLeg.isHit)
+            return JumpCenterOfMass;
         if (OneLegOnGround)
           return OnGrroundCenterOfMass;
         return JumpCenterOfMass;
@@ -106,7 +135,8 @@ public class Player : MonoBehaviour
 	            keyCode = KeyCode.L;
                 break;
 	    }
-        if (Input.GetKey(keyCode))
+
+        if (Input.GetKeyDown(keyCode))
 	    {
 	        PressedJump = true;
 	    }
@@ -116,12 +146,12 @@ public class Player : MonoBehaviour
 	        JumpReleased = true;
 	    }
         
-        if (PressedJump && !JumpReleased)
+        if (PressedJump)
 	    {
             Jump = true;
+	        PressedJump = false;
             _acitveLegComponent.Hit();
             _inAcitveLegComponent.Hit();
-	        
 	    }
         if (JumpReleased)
         {
@@ -158,17 +188,25 @@ public class Player : MonoBehaviour
         public float GoalKeeperRotation, GoalKeeperActiveLegRotation, GoalKeeperPassiveLegRotation;
         public int PlayerId;
     }
-
+    
+    public Vector2 MaxVelocity = new Vector2(50, 50);
     void FixedUpdate()
     {
         if (ChangeCenterOfMass)
             UpdateCenterOfMass();
 
+        if (_rigidbody.velocity.magnitude > MaxVelocity.magnitude)
+        {
+            _rigidbody.velocity = _rigidbody.velocity.normalized*MaxVelocity.magnitude;
+        }
+
         if (Jump)
         {
+            Jump = false;
             if (OneLegOnGround || OnGround)
             {
-//                _rigidbody.AddForce(transform.up *1.3f + Vector3.up*1.2f/2 * JumpPower/Time.fixedDeltaTime);
+                _rigidbody.AddForce(transform.up * JumpPower/Time.fixedDeltaTime);
+                _rigidbody.AddTorque(Flip ? 5 / Time.fixedDeltaTime : -5 / Time.fixedDeltaTime);
             }
         }
     }

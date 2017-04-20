@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 2013
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "football.CSharp", "football.CSharp.csproj", "{3FA363A1-718C-391D-E441-D2C5930679E9}"
+# Visual Studio 2015
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Football", "Football.csproj", "{80AE7732-EB99-1FC7-8B22-B33B0A8D69DE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -9,10 +9,10 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{3FA363A1-718C-391D-E441-D2C5930679E9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{3FA363A1-718C-391D-E441-D2C5930679E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{3FA363A1-718C-391D-E441-D2C5930679E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{3FA363A1-718C-391D-E441-D2C5930679E9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{80AE7732-EB99-1FC7-8B22-B33B0A8D69DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{80AE7732-EB99-1FC7-8B22-B33B0A8D69DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{80AE7732-EB99-1FC7-8B22-B33B0A8D69DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{80AE7732-EB99-1FC7-8B22-B33B0A8D69DE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

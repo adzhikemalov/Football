@@ -16,6 +16,7 @@ public class Leg : MonoBehaviour
     private JointMotor2D _motorIdle;
     private JointAngleLimits2D _activeLimits;
     private JointAngleLimits2D _passiveLimits;
+    public bool isHit;
 
     public bool OnGround {
         get
@@ -75,11 +76,13 @@ public class Leg : MonoBehaviour
     
     public void Hit()
     {
+        isHit = true;
         _joint.motor = _motorHit;
     }
 
     public void StopHit()
     {
+        isHit = false;
         _joint.motor = _motorIdle;
     }
 }
