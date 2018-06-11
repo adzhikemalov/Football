@@ -4,21 +4,21 @@ using System.Collections;
 using System.Runtime.CompilerServices;
 using System.Text;
 using UnityEditor;
+using UnityEngine.UI;
 
 public class Player : MonoBehaviour
 {
-    [Header("Physics parameters")]
-    public int JumpPower = 495;
+
+    public Image Scroll;
+    [Header("Physics parameters")] public int JumpPower = 495;
     public Vector2 OnGrroundCenterOfMass;
     public Vector2 JumpCenterOfMass;
     public bool ChangeCenterOfMass = true;
 
-    [Header("Legs")]
-    public GameObject ActiveLeg;
+    [Header("Legs")] public GameObject ActiveLeg;
     public GameObject InatciveLeg;
 
-    [Header("Hands")]
-    public GameObject LeftHand;
+    [Header("Hands")] public GameObject LeftHand;
     public GameObject RightHand;
 
     public bool Flip;
@@ -33,11 +33,11 @@ public class Player : MonoBehaviour
     private Leg _acitveLegComponent;
     private Leg _inAcitveLegComponent;
     private Rigidbody2D _rigidbody;
-    
-	void Start ()
-	{
-	    _rigidbody = GetComponent<Rigidbody2D>();
-	    _rigidbody.useAutoMass = false;
+
+    void Start()
+    {
+        _rigidbody = GetComponent<Rigidbody2D>();
+        _rigidbody.useAutoMass = false;
 
         if (ActiveLeg != null && InatciveLeg != null)
         {
@@ -60,7 +60,7 @@ public class Player : MonoBehaviour
                 _inAcitveLegComponent.Flip = true;
             }
         }
-	}
+    }
 
     public Leg GetActiveLeg
     {
@@ -72,10 +72,12 @@ public class Player : MonoBehaviour
         get { return Flip ? _acitveLegComponent : _inAcitveLegComponent; }
     }
 
-    public bool OnGround {
+    public bool OnGround
+    {
         get
         {
-            return _inAcitveLegComponent != null && (_acitveLegComponent != null && ( _acitveLegComponent.OnGround && _inAcitveLegComponent.OnGround));
+            return _inAcitveLegComponent != null &&
+                   (_acitveLegComponent != null && (_acitveLegComponent.OnGround && _inAcitveLegComponent.OnGround));
         }
     }
 
@@ -88,14 +90,14 @@ public class Player : MonoBehaviour
                    (!_acitveLegComponent.OnGround && _inAcitveLegComponent.OnGround);
         }
     }
-    
+
     void OnDrawGizmos()
     {
 
 #if UNITY_EDITOR
         if (!EditorApplication.isPlaying) return;
 #endif
-            if (OneLegOnGround || (GetInActiveLeg.OnGround && GetActiveLeg.isHit))
+        if (OneLegOnGround || (GetInActiveLeg.OnGround && GetActiveLeg.isHit))
             Gizmos.color = Color.cyan;
         else
             Gizmos.color = Color.red;
@@ -113,11 +115,21 @@ public class Player : MonoBehaviour
         if (GetInActiveLeg.OnGround && GetActiveLeg.isHit)
             return JumpCenterOfMass;
         if (OneLegOnGround)
-          return OnGrroundCenterOfMass;
+            return OnGrroundCenterOfMass;
         return JumpCenterOfMass;
     }
 
-	void Update ()
+    private void ResetScroll()
+    {
+        Scroll.transform.localScale = new Vector3(0, 1, 1);
+    }
+
+    private void AddScroll()
+    {
+        Scroll.transform.localScale = new Vector3(Scroll.transform.localScale.x + 0.1f, 1, 1);
+    }
+
+    void Update ()
 	{
 	    var keyCode = Key;
 	    
@@ -125,16 +137,21 @@ public class Player : MonoBehaviour
 	    {
 	        PressedJump = true;
 	    }
+
+	    if (PressedJump)
+	    {
+            AddScroll();
+        }
+
         if (Input.GetKeyUp(keyCode))
 	    {
 	        PressedJump = false;
 	        JumpReleased = true;
+            ResetScroll();
 	    }
         
         if (PressedJump)
 	    {
-            Jump = true;
-	        PressedJump = false;
             _acitveLegComponent.Hit();
             _inAcitveLegComponent.Hit();
 	    }
