@@ -28,6 +28,40 @@ they lean. Pressing while lying on the ground stands the player back up.
 You can play against the CPU or with two people on one keyboard. First to 5
 goals wins.
 
+## Online multiplayer
+
+Choose **Play online**. One player presses **Host a game** and gets a 4-letter
+code and a link. The other player opens the link (or types the code) and
+presses **Join**. The host plays Blue and the guest plays Red.
+
+Online, each person uses the same two keys: the key pointing at your own
+goal is your keeper. Blue: `A`/`←` keeper, `D`/`→` striker. Red: `D`/`→`
+keeper, `A`/`←` striker. On phones, each player gets their own team's buttons.
+
+How it works: the browsers connect directly over WebRTC using
+[PeerJS](https://peerjs.com). PeerJS's free public server introduces the two
+browsers, and its TURN relay is used when a direct connection isn't
+possible. The host's browser runs all the physics and sends positions 30 times
+a second. The guest sends only key presses and draws what it receives about
+0.1 s behind, which keeps the motion smooth. So the guest's controls lag by
+their ping plus that 0.1 s, and the host's controls don't lag at all.
+
+Online play needs the page to be served over the web (not opened from a
+file). The easiest way is GitHub Pages:
+
+1. On GitHub, open the repository's **Settings → Pages**.
+2. Under **Build and deployment**, pick **Deploy from a branch**, choose the
+   branch with this code (for example `master` once it is merged) and the
+   `/ (root)` folder, and press **Save**.
+3. After a minute the game is at
+   `https://adzhikemalov.github.io/Football/web/`.
+
+The empty `.nojekyll` file in the repository root tells GitHub Pages to serve
+the files as they are, without running Jekyll.
+
+To test with your own signaling server instead of the PeerJS cloud, run
+`npx peerjs --port 9000` and open `index.html?peer=localhost:9000`.
+
 ## Changes to kicking and ball control compared with the Unity build
 
 * **Kick on release.** In the Unity build, holding the key swung the legs,
@@ -57,5 +91,7 @@ goals wins.
   also runs in Node for tuning (`require('./game.js')`, with `planck` on
   `globalThis`).
 * `render.js`: canvas drawing, input, sound and the main loop.
+* `net.js`: online play: hosting, joining, snapshots and interpolation.
 * `planck.min.js`: planck.js 1.4.2 (MIT), included in the repo so the game
   works offline.
+* `peerjs.min.js`: PeerJS 1.5.5 (MIT), used for online play.

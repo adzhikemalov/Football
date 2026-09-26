@@ -76,26 +76,68 @@
   };
 
   // -------------------------------------------------------------- input
-  const humanPlayers = () => mode === 'cpu' ? [0, 1] : [0, 1, 2, 3];
-  function press(i) { if (match && !paused && humanPlayers().includes(i)) match.press(i); }
-  function release(i) { if (match && humanPlayers().includes(i)) match.release(i); }
+  // Online, each side controls its own team. The key pointing at your own
+  // goal is the keeper: blue A/← keeper, D/→ striker; red D/→ keeper, A/← striker.
+  const NET = window.FootballNet;
+  let net = null;             // host/join session while online
+  let lastSend = 0;
+  let lastHeard = 0;          // ms, last message from the other player
+  let pendingEvents = [];
 
+  function ownPlayers() {
+    if (mode === 'cpu' || mode === 'host') return [0, 1];
+    if (mode === 'guest') return [2, 3];
+    return [0, 1, 2, 3];
+  }
+  function playerForKey(code) {
+    if (mode === 'host' || mode === 'guest') {
+      const left = code === 'KeyA' || code === 'ArrowLeft';
+      const right = code === 'KeyD' || code === 'ArrowRight';
+      if (!left && !right) return -1;
+      if (mode === 'host') return left ? 0 : 1;
+      return right ? 2 : 3;
+    }
+    return code in KEYMAP ? KEYMAP[code] : -1;
+  }
+  function press(i) {
+    if (!match || paused || !ownPlayers().includes(i)) return;
+    if (mode === 'guest') net.send({ t: 'in', r: i - 2, d: 1 });
+    else match.press(i);
+  }
+  function release(i) {
+    if (!match || !ownPlayers().includes(i)) return;
+    if (mode === 'guest') net.send({ t: 'in', r: i - 2, d: 0 });
+    else match.release(i);
+  }
+  function restart() {
+    if (!match) return;
+    if (mode === 'guest') { if (match.state === 'over') net.send({ t: 'restart' }); return; }
+    match.restart(); paused = false;
+  }
+
+  const held = {};
   window.addEventListener('keydown', (e) => {
-    if (e.code in KEYMAP) {
+    if (e.target && e.target.tagName === 'INPUT') return;
+    const i = playerForKey(e.code);
+    if (i >= 0) {
       e.preventDefault();
-      if (!e.repeat) { audio(); press(KEYMAP[e.code]); }
+      if (!e.repeat && !held[e.code]) { held[e.code] = true; audio(); press(i); }
     } else if (e.code === 'KeyP' || e.code === 'Escape') {
-      if (match) paused = !paused;
+      if (match && !net) paused = !paused;
     } else if (e.code === 'KeyR') {
-      if (match) { match.restart(); paused = false; }
+      if (mode !== 'guest') restart();
     } else if ((e.code === 'Space' || e.code === 'Enter') && match && match.state === 'over') {
-      match.restart();
+      restart();
     }
   });
   window.addEventListener('keyup', (e) => {
-    if (e.code in KEYMAP) { e.preventDefault(); release(KEYMAP[e.code]); }
+    const i = playerForKey(e.code);
+    if (i >= 0) { e.preventDefault(); held[e.code] = false; release(i); }
   });
-  window.addEventListener('blur', () => { if (match) for (let i = 0; i < 4; i++) match.release(i); });
+  window.addEventListener('blur', () => {
+    for (const k in held) held[k] = false;
+    if (match) for (const i of ownPlayers()) release(i);
+  });
 
   for (const pad of document.querySelectorAll('.pad')) {
     const i = +pad.dataset.player;
@@ -105,28 +147,134 @@
     pad.addEventListener('pointerup', up);
     pad.addEventListener('pointercancel', up);
   }
-  canvas.addEventListener('pointerdown', () => { if (match && match.state === 'over') match.restart(); });
+  canvas.addEventListener('pointerdown', () => { if (match && match.state === 'over') restart(); });
 
   function start(m) {
     audio();
     mode = m;
-    match = createMatch({ cpu: m === 'cpu' ? [false, true] : [false, false] });
-    match.events.push({ type: 'whistle' });
+    match = m === 'guest' ? NET.createView() : createMatch({ cpu: m === 'cpu' ? [false, true] : [false, false] });
+    if (m !== 'guest') match.events.push({ type: 'whistle' });
     paused = false;
+    particles.length = 0;
+    banner = null;
     menu.hidden = true;
+    onlinePanel.hidden = true;
     const touch = matchMedia('(pointer: coarse)').matches;
-    touchLeft.hidden = !touch;
-    touchRight.hidden = !touch || m === 'cpu';
+    touchLeft.hidden = !touch || m === 'guest';
+    touchRight.hidden = !touch || m === 'cpu' || m === 'host';
   }
   document.getElementById('btn-cpu').addEventListener('click', () => start('cpu'));
   document.getElementById('btn-2p').addEventListener('click', () => start('2p'));
+
+  // --------------------------------------------------------- online menu
+  const onlinePanel = document.getElementById('online');
+  const onlineStatus = document.getElementById('online-status');
+  const codeBox = document.getElementById('host-code');
+  const codeInput = document.getElementById('join-code');
+  const btnOnline = document.getElementById('btn-online');
+  if (!NET || !NET.available()) {
+    btnOnline.disabled = true;
+    btnOnline.title = 'Online play needs WebRTC, which this page cannot use here';
+  }
+
+  function showOnline(status) {
+    menu.hidden = false;
+    onlinePanel.hidden = false;
+    document.getElementById('main-card').hidden = true;
+    onlineStatus.textContent = status || '';
+  }
+  function backToMenu(message) {
+    if (net) { net.close(); net = null; }
+    match = null; mode = null;
+    document.querySelector('.row.join').hidden = false;
+    touchLeft.hidden = true; touchRight.hidden = true;
+    codeBox.hidden = true;
+    showOnline(message || '');
+    if (!message) { onlinePanel.hidden = true; document.getElementById('main-card').hidden = false; }
+  }
+
+  const handlers = (role) => ({
+    onStatus(state, code) {
+      if (state === 'waiting') {
+        document.querySelector('.row.join').hidden = true;
+        codeBox.hidden = false;
+        codeBox.querySelector('b').textContent = code;
+        const link = location.href.split('#')[0] + '#' + code;
+        codeBox.querySelector('input').value = link;
+        onlineStatus.textContent = 'Waiting for your friend to join…';
+      } else {
+        onlineStatus.textContent = 'Connecting to game ' + code + '…';
+      }
+    },
+    onOpen() {
+      lastHeard = performance.now();
+      document.querySelector('.row.join').hidden = false;
+      if (role === 'host') { start('host'); net.send({ t: 'hello' }); }
+      else start('guest');
+    },
+    onData(msg) {
+      lastHeard = performance.now();
+      if (role === 'host') {
+        if (msg.t === 'in' && (msg.r === 0 || msg.r === 1)) {
+          if (msg.d) match.press(2 + msg.r); else match.release(2 + msg.r);
+        } else if (msg.t === 'restart' && match && match.state === 'over') match.restart();
+      } else if (msg.t === 's' && Array.isArray(msg.s)) {
+        match.receive(msg, performance.now() / 1000);
+      } else if (msg.t === 'full') {
+        backToMenu('That game already has two players.');
+      }
+    },
+    onClose(reason) {
+      backToMenu(reason === 'left' ? 'Your friend left the game.' : reason);
+    },
+  });
+
+  btnOnline.addEventListener('click', () => { audio(); showOnline(''); codeBox.hidden = true; codeInput.focus(); });
+  document.getElementById('btn-host').addEventListener('click', () => {
+    if (net) net.close();
+    onlineStatus.textContent = 'Creating a game…';
+    net = NET.host(handlers('host'));
+  });
+  function joinGame() {
+    const code = NET.cleanCode(codeInput.value);
+    if (code.length !== 4) { onlineStatus.textContent = 'Enter the 4-letter code your friend sees.'; return; }
+    if (net) net.close();
+    codeBox.hidden = true;
+    net = NET.join(code, handlers('guest'));
+  }
+  document.getElementById('btn-join').addEventListener('click', () => { audio(); joinGame(); });
+  codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinGame(); });
+  document.getElementById('btn-back').addEventListener('click', () => backToMenu());
+  document.getElementById('btn-copy').addEventListener('click', (e) => {
+    const input = codeBox.querySelector('input');
+    const done = () => { e.target.textContent = 'Copied'; setTimeout(() => { e.target.textContent = 'Copy link'; }, 1500); };
+    if (navigator.clipboard) navigator.clipboard.writeText(input.value).then(done, () => { input.select(); });
+    else input.select();
+  });
+  // a shared link like …/#K7QX opens straight into joining that game
+  const hashCode = NET && NET.cleanCode(location.hash.slice(1));
+  if (hashCode && hashCode.length === 4 && NET.available()) {
+    showOnline('');
+    codeInput.value = hashCode;
+    history.replaceState(null, '', location.pathname + location.search);
+    onlineStatus.textContent = 'Press Join to play in game ' + hashCode + '.';
+  }
 
   // ---------------------------------------------------------------- loop
   let last = performance.now(), acc = 0;
   function frame(now) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
-    if (match && !paused) {
+    if (net && match && (mode === 'host' || mode === 'guest')) {
+      // WebRTC can take half a minute to notice a closed tab, so both sides
+      // send something at least once a second and give up after 5 s of silence
+      if (mode === 'guest' && now - lastSend > 1000) { lastSend = now; net.send({ t: 'ping' }); }
+      if (now - lastHeard > 5000) backToMenu('Lost the connection to your friend.');
+    }
+    if (match && mode === 'guest') {
+      match.update(now / 1000);
+      handleEvents();
+    } else if (match && !paused) {
       acc += dt;
       let n = 0;
       while (acc >= CFG.step && n < 10) {
@@ -135,6 +283,14 @@
         acc -= CFG.step; n++;
       }
       if (n === 10) acc = 0;
+      if (mode === 'host' && net) {
+        pendingEvents.push(...match.events);
+        if (now - lastSend >= 1000 / NET.SNAPSHOT_HZ) {
+          lastSend = now;
+          net.send(NET.encode(match, pendingEvents));
+          pendingEvents = [];
+        }
+      }
       handleEvents();
     }
     updateParticles(dt);
@@ -158,7 +314,7 @@
         sfx.goal();
         const t = TEAM[e.team];
         banner = match.state === 'over'
-          ? { text: t.name + ' WINS', sub: 'press Space or tap to play again', color: t.shirt, t: 0, dur: 1e9 }
+          ? { text: t.name + ' WINS', sub: mode === 'guest' || mode === 'host' ? 'press Space or tap for a rematch' : 'press Space or tap to play again', color: t.shirt, t: 0, dur: 1e9 }
           : { text: 'GOAL!', sub: t.name + ' scores', color: t.shirt, t: 0, dur: 1.8 };
         const b = match.ball.getPosition();
         for (let i = 0; i < 60; i++) {
@@ -366,7 +522,7 @@
     // key hint + charge bar above the head
     const pos = p.body.getPosition();
     const hx = sx(pos.x), hy = sy(pos.y + 1.05);
-    const human = mode === '2p' || p.team === 0;
+    const human = ownPlayers().includes(match.players.indexOf(p));
     if (human) {
       ctx.font = `700 ${Math.max(10, S * 0.2)}px ui-monospace, monospace`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
