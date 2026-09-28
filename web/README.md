@@ -40,11 +40,28 @@ keeper, `A`/`←` striker. On phones, each player gets their own team's buttons.
 
 How it works: the browsers connect directly over WebRTC using
 [PeerJS](https://peerjs.com). PeerJS's free public server introduces the two
-browsers, and its TURN relay is used when a direct connection isn't
-possible. The host's browser runs all the physics and sends positions 30 times
+browsers. The host's browser runs all the physics and sends positions 30 times
 a second. The guest sends only key presses and draws what it receives about
 0.1 s behind, which keeps the motion smooth. So the guest's controls lag by
 their ping plus that 0.1 s, and the host's controls don't lag at all.
+
+### Relay (TURN) server
+
+Most home networks can connect directly. Strict networks (many mobile
+carriers, offices, schools) need a TURN relay in between. PeerJS used to
+provide free relays, but `eu-0.turn.peerjs.com` and `us-0.turn.peerjs.com` no
+longer resolve, so the game replaces PeerJS's defaults with STUN only plus
+whatever relay you configure in `ice-config.js`:
+
+* **Metered.ca free plan** (includes TCP/TLS on port 443): create an app, copy
+  its TURN credentials URL
+  (`https://<app>.metered.live/api/v1/turn/credentials?apiKey=...`) and paste
+  it as `credentialsUrl`.
+* **Any other TURN server**: list it in `iceServers` with its username and
+  credential.
+
+Without a relay, players on strict networks see "Your networks do not allow a
+direct connection" after 20 seconds.
 
 Online play needs the page to be served over the web (not opened from a
 file). The easiest way is GitHub Pages:
@@ -92,6 +109,7 @@ To test with your own signaling server instead of the PeerJS cloud, run
   `globalThis`).
 * `render.js`: canvas drawing, input, sound and the main loop.
 * `net.js`: online play: hosting, joining, snapshots and interpolation.
+* `ice-config.js`: the relay (TURN) server settings for online play.
 * `planck.min.js`: planck.js 1.4.2 (MIT), included in the repo so the game
   works offline.
 * `peerjs.min.js`: PeerJS 1.5.5 (MIT), used for online play.
