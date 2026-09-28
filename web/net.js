@@ -62,6 +62,7 @@
       const code = newCode();
       const peer = new window.Peer(PREFIX + code, peerOptions(servers));
       const s = inner = session(peer, handlers, servers);
+      s.code = code;
       outer.code = code;
       peer.on('open', () => handlers.onStatus('waiting', code));
       peer.on('connection', (conn) => {
@@ -87,6 +88,7 @@
       if (outer.closed) return;
       const peer = new window.Peer(undefined, peerOptions(servers));
       const s = inner = session(peer, handlers, servers);
+      s.code = code;
       peer.on('open', () => {
         const conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
         s.attach(conn);
@@ -103,9 +105,10 @@
 
   function session(peer, handlers, servers) {
     const s = {
-      peer, conn: null, open: false, closed: false, timer: 0,
+      peer, conn: null, open: false, closed: false, timer: 0, ice: '', cands: {},
       attach(conn) {
         s.conn = conn;
+        watchIce(conn);
         conn.on('open', () => { clearTimeout(s.timer); s.open = true; handlers.onOpen(); });
         conn.on('data', (msg) => { if (!s.closed && msg && typeof msg === 'object') handlers.onData(msg); });
         conn.on('close', () => s.end('left'));
@@ -113,7 +116,8 @@
       },
       send(msg) { if (s.open && s.conn && s.conn.open) s.conn.send(msg); },
       fail(err) {
-        const msg = {
+        const type = err && err.type;
+        let msg = {
           'peer-unavailable': 'No game with that code. Check the code and that your friend is still hosting.',
           'network': 'Could not reach the connection server. Check your internet connection.',
           'server-error': 'The connection server is not responding. Try again in a minute.',
@@ -121,7 +125,16 @@
           'timeout': hasRelay(servers || [])
             ? 'Could not connect to your friend, even through the relay server. Try again, or try another network.'
             : 'Could not connect to your friend. Your networks do not allow a direct connection, and this site has no relay (TURN) server set up. See web/ice-config.js.',
-        }[err && err.type] || 'Connection failed' + (err && err.type ? ' (' + err.type + ')' : '') + '.';
+          'ice-failed': hasRelay(servers || [])
+            ? 'Found your friend\'s game, but could not link the two browsers, even through the relay server.'
+            : 'Found your friend\'s game, but your networks block a direct link, and this site has no relay (TURN) server set up yet.',
+        }[type] || 'Connection failed' + (type ? ' (' + type + ')' : '') + '.';
+        if (type === 'timeout' && !s.ice) msg = 'Your friend\'s game did not answer. Ask them to reload the page and host again.';
+        // which step failed, and what kind of network addresses this browser found
+        const found = Object.keys(s.cands).join(', ') || 'none';
+        const step = { network: 1, 'server-error': 1, 'peer-unavailable': 2 }[type] || 3;
+        msg += ' [step ' + step + ' of 3' + (step === 3 ? ', link ' + (s.ice || 'not started') + ', addresses: ' + found : '') + ']';
+        if (window.console) console.warn('Online play failed:', type, s.ice, s.cands, err);
         s.end(msg);
       },
       end(reason) {
@@ -133,6 +146,27 @@
       },
       close() { s.closed = true; clearTimeout(s.timer); try { peer.destroy(); } catch (e) { /* ignore */ } },
     };
+    // PeerJS creates the RTCPeerConnection a moment after connect(); follow its
+    // ICE state so a blocked link fails right away with a clear message.
+    function watchIce(conn) {
+      const poll = setInterval(() => {
+        const pc = conn.peerConnection;
+        if (s.closed) { clearInterval(poll); return; }
+        if (!pc) return;
+        clearInterval(poll);
+        const update = () => {
+          s.ice = pc.iceConnectionState;
+          if (s.ice === 'checking' && !s.open) handlers.onStatus('linking', s.code);
+          if (s.ice === 'failed' && !s.open) s.fail({ type: 'ice-failed' });
+        };
+        pc.addEventListener('iceconnectionstatechange', update);
+        pc.addEventListener('icecandidate', (e) => {
+          const m = e.candidate && / typ (host|srflx|prflx|relay)/.exec(e.candidate.candidate);
+          if (m) s.cands[{ host: 'local', srflx: 'public', prflx: 'public', relay: 'relay' }[m[1]]] = true;
+        });
+        update();
+      }, 100);
+    }
     return s;
   }
 
