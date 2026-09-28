@@ -20,7 +20,7 @@ cd web && python3 -m http.server 8000   # then open http://localhost:8000
 | Blue | `D`     | `A`    |
 | Red  | `←`     | `→`    |
 
-Standing players rock back and forth (about ±15°, every 1.1 s), and a jump
+Standing players rock back and forth (about ±15°, every 0.7 s), and a jump
 always goes where the head points. **Press** when the head leans the way you
 want to go: the lean locks and an arrow over the head shows the jump
 direction. **Hold** to charge (the bar fills) and **release** to kick and
