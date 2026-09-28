@@ -28,8 +28,8 @@
     fieldHalf: 7,                 // walls at x = ±7 (scene "Bound" objects)
     ceiling: 9,
     goalMouthX: 6.15,             // front of the goal (crossbar)
-    goalHeight: 2.8,
-    goalBackHeight: 3.35,
+    goalHeight: 3.2,
+    goalBackHeight: 3.75,
     winScore: 5,
 
     bodyW: 0.5, bodyH: 1.0,       // Player BoxCollider2D
@@ -67,7 +67,6 @@
     kickMaxSpeed: 16.5,
 
     uprightK: 650, uprightD: 120, // self-righting torque on the ground
-    aimK: 1400,                   // holds the locked lean while the button is held
     coyoteTime: 0.15,             // s after leaving the ground a jump still works
     airK: 160, airD: 18,
   };
@@ -261,7 +260,7 @@
           dir = Vec2(p.dir * 0.15 * up, up);
           body.setAngularVelocity(-angle * 7);
         } else {
-          // straight along the locked lean: the jump goes where the head points
+          // straight along the lean at release: the jump goes where the head points
           dir = Vec2(-Math.sin(p.aim) * up, Math.cos(p.aim) * up);
         }
         const v = body.getLinearVelocity();
@@ -274,8 +273,6 @@
         p.pendingPress = false;
         p.holdTime = 0;
         p.charge = 0;
-        // lock the lean: holding keeps the head pointing this way
-        p.aim = clamp(angle, -CFG.maxAim * DEG, CFG.maxAim * DEG);
         if (fallen) hop(CFG.hopSpeed * 0.8, true);
       }
       if (p.held) {
@@ -288,6 +285,8 @@
         p.pendingRelease = false;
         p.kickPower = CFG.minCharge + (1 - CFG.minCharge) * p.charge;
         p.kickTimer = 0;
+        // the jump goes where the head points at the moment of release
+        p.aim = clamp(angle, -CFG.maxAim * DEG, CFG.maxAim * DEG);
         if (!fallen) hop(CFG.hopUpMin + (CFG.hopUpMax - CFG.hopUpMin) * p.charge, false);
         p.charge = 0;
         match.events.push({ type: 'swing', p });
@@ -317,10 +316,9 @@
         p.fallenTime = 0;
       }
       // standing players sway so the head (and the next jump) points forward
-      // or back in turn; while the button is held the lean stays locked
+      // or back in turn, also while the button is held
       let target = 0, targetW = 0;
-      if (p.held && !fallen) { target = p.aim; k = Math.max(k, CFG.aimK); d = Math.max(d, CFG.uprightD); }
-      else if (onFeet) {
+      if (onFeet) {
         const om = 2 * Math.PI / CFG.swayPeriod, ph = match.time * om + p.swayPhase;
         target = CFG.swayAmp * DEG * Math.sin(ph);
         targetW = CFG.swayAmp * DEG * om * Math.cos(ph);   // damp relative to the sway, so it doesn't lag
@@ -452,9 +450,14 @@
     const ahead = (b.x - pos.x) * p.dir;        // ball distance in attacking direction
     const dy = b.y - pos.y;
     ai.wait -= dt;
+    // the jump goes where the head points at release (>0: leaning towards
+    // the opponent's goal), so time the release with the sway
+    const leanFwd = -wrapAngle(p.body.getAngle()) * p.dir;
+    const leaning = (want) => leanFwd * want > 0.1;
 
     if (p.held) {
       ai.holdFor -= dt;
+      if (ai.holdFor <= 0 && ai.want && !leaning(ai.want) && p.holdTime < 1.2) return;
       // release early if the ball is right at the foot
       const foot = p.kickLeg.body.getPosition();
       const near = Math.hypot(b.x - foot.x - p.dir * 0.3, b.y - foot.y) < 0.55;
@@ -466,10 +469,7 @@
     }
     if (ai.wait > 0 || !p.grounded) return;
 
-    // the jump goes where the head points, so wait for the sway to lean the
-    // way we want to go (>0: leaning towards the opponent's goal)
-    const leanFwd = -wrapAngle(p.body.getAngle()) * p.dir;
-    const leaning = (want) => leanFwd * want > 0.1;
+    ai.want = 0;
     const fallen = Math.abs(wrapAngle(p.body.getAngle())) > 65 * DEG;
     if (fallen) { match.press(i); ai.holdFor = 0.05; ai.wait = 0.4; return; }
 
@@ -481,8 +481,8 @@
         match.press(i);
         ai.holdFor = threat && ahead < 1.2 ? 0.05 + Math.random() * 0.2 : 0.35;
         ai.wait = 0.2 + Math.random() * 0.2;
-      } else if (Math.abs(home) > 1.2 && leaning(Math.sign(home))) {
-        match.press(i); ai.holdFor = 0.05;           // hop back home
+      } else if (Math.abs(home) > 1.2) {
+        match.press(i); ai.holdFor = 0.05; ai.want = Math.sign(home);   // hop back home
         ai.wait = 0.3;
       }
       return;
@@ -491,9 +491,9 @@
     if (ahead > -0.3 && ahead < 1.3 && dy < 1.2) {
       if (leanFwd > -0.05) { match.press(i); ai.holdFor = 0.1 + Math.random() * 0.45; }
     } else if (ahead >= 1.3) {
-      if (leaning(1)) { match.press(i); ai.holdFor = 0.04 + Math.random() * 0.2; ai.wait = 0.2 + Math.random() * 0.3; }
+      match.press(i); ai.holdFor = 0.04 + Math.random() * 0.2; ai.want = 1; ai.wait = 0.2 + Math.random() * 0.3;
     } else if (ahead <= -0.3) {
-      if (leaning(-1)) { match.press(i); ai.holdFor = 0.04 + Math.random() * 0.2; ai.wait = 0.3; }
+      match.press(i); ai.holdFor = 0.04 + Math.random() * 0.2; ai.want = -1; ai.wait = 0.3;
     }
   }
 
