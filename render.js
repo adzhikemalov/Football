@@ -202,6 +202,8 @@
         const link = location.href.split('#')[0] + '#' + code;
         codeBox.querySelector('input').value = link;
         onlineStatus.textContent = 'Waiting for your friend to join…';
+      } else if (state === 'linking') {
+        onlineStatus.textContent = role === 'host' ? 'Your friend found the game. Linking…' : 'Found the game. Linking to your friend…';
       } else {
         onlineStatus.textContent = 'Connecting to game ' + code + '…';
       }
