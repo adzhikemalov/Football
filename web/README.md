@@ -45,23 +45,27 @@ a second. The guest sends only key presses and draws what it receives about
 0.1 s behind, which keeps the motion smooth. So the guest's controls lag by
 their ping plus that 0.1 s, and the host's controls don't lag at all.
 
-### Relay (TURN) server
+### When a direct link is blocked
 
-Most home networks can connect directly. Strict networks (many mobile
-carriers, offices, schools) need a TURN relay in between. PeerJS used to
-provide free relays, but `eu-0.turn.peerjs.com` and `us-0.turn.peerjs.com` no
-longer resolve, so the game replaces PeerJS's defaults with STUN only plus
-whatever relay you configure in `ice-config.js`:
+Most home networks can connect the two browsers directly. Strict networks
+(many mobile carriers, offices, schools, some home routers) block that. The
+game then falls back on its own, with no setup needed:
 
-* **Metered.ca free plan** (includes TCP/TLS on port 443): create an app, copy
-  its TURN credentials URL
-  (`https://<app>.metered.live/api/v1/turn/credentials?apiKey=...`) and paste
-  it as `credentialsUrl`.
-* **Any other TURN server**: list it in `iceServers` with its username and
-  credential.
+1. **Backup relay (automatic).** If the direct link fails (after about 3 to
+   12 seconds), the guest says "Connecting through the backup relay" and both
+   browsers send the game through a free public MQTT broker
+   (`broker.emqx.io` or `broker.hivemq.com`) over a secure WebSocket. No
+   account or card is needed. It adds some delay for the guest, so snapshots
+   drop to 20 per second and the guest draws the match 0.2 s behind. It also
+   works when PeerJS's connection server is down.
+2. **Optional TURN server.** For the lowest delay on strict networks, you can
+   add a TURN relay in `ice-config.js`: a Metered.ca credentials URL or any
+   TURN server with a username and password. PeerJS's own relays
+   (`*.turn.peerjs.com`) no longer exist, so the game doesn't use them.
 
-Without a relay, players on strict networks see "Your networks do not allow a
-direct connection" after 20 seconds.
+The public brokers are shared, so anyone who knows a game's code could read
+or send its messages. That's fine for a casual game, but don't send anything
+private through it.
 
 Online play needs the page to be served over the web (not opened from a
 file). The easiest way is GitHub Pages:
@@ -76,8 +80,9 @@ file). The easiest way is GitHub Pages:
 The empty `.nojekyll` file in the repository root tells GitHub Pages to serve
 the files as they are, without running Jekyll.
 
-To test with your own signaling server instead of the PeerJS cloud, run
-`npx peerjs --port 9000` and open `index.html?peer=localhost:9000`.
+To test with your own servers, run `npx peerjs --port 9000` and any MQTT
+broker with WebSockets, then open
+`index.html?peer=localhost:9000&relay=ws://localhost:8888`.
 
 ## Changes to kicking and ball control compared with the Unity build
 
@@ -113,3 +118,4 @@ To test with your own signaling server instead of the PeerJS cloud, run
 * `planck.min.js`: planck.js 1.4.2 (MIT), included in the repo so the game
   works offline.
 * `peerjs.min.js`: PeerJS 1.5.5 (MIT), used for online play.
+* `mqtt.min.js`: MQTT.js 5.16.0 (MIT), used for the backup relay.

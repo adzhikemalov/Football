@@ -1,4 +1,4 @@
-// Online play over WebRTC (PeerJS). The host's browser runs the physics for
+// Online play over WebRTC (PeerJS), with a public MQTT relay as fallback. The host's browser runs the physics for
 // both teams. The guest sends key presses and draws the snapshots the host
 // streams back. Nothing is simulated on the guest.
 (function () {
@@ -52,8 +52,35 @@
   }
   const cleanCode = (s) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
 
-  // Session wraps one Peer + one DataConnection. handlers: onStatus(text),
-  // onOpen(), onData(msg), onClose(reason)
+  // --------------------------------------------------------------- relay
+  // Fallback for networks that block a direct browser-to-browser link: the
+  // same messages go through a free public MQTT broker over a secure
+  // WebSocket, which strict networks allow. No account is needed. Topics are
+  // named after the game code, and the host listens on every broker.
+  const RELAY_BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt'];
+  const RELAY_NS = 'football-physics-adzhikemalov/v1/';
+  const RELAY_HZ = 20;
+  const relayTopic = (code, to) => RELAY_NS + code + '/' + to;   // to: 'h' host, 'g' guest
+  function relayBrokers() {
+    const m = /[?&]relay=([^&#]+)/.exec(location.search);   // ?relay=ws://127.0.0.1:8888 for testing
+    return m ? [decodeURIComponent(m[1])] : RELAY_BROKERS;
+  }
+  const relayAvailable = () => !!(window.mqtt && typeof window.mqtt.connect === 'function');
+  // resolves with a connected client, or null after timeoutMs
+  function relayClient(url, timeoutMs) {
+    return new Promise((resolve) => {
+      if (!relayAvailable()) { resolve(null); return; }
+      let client;
+      try {
+        client = window.mqtt.connect(url, { connectTimeout: timeoutMs, reconnectPeriod: 2000, keepalive: 20, clean: true });
+      } catch (e) { resolve(null); return; }
+      const t = setTimeout(() => { client.end(true); resolve(null); }, timeoutMs);
+      client.once('connect', () => { clearTimeout(t); resolve(client); });
+    });
+  }
+  const parse = (payload) => { try { return JSON.parse(payload.toString()); } catch (e) { return null; } };
+
+  // handlers: onStatus(state, code), onOpen(), onData(msg), onClose(reason)
   function host(handlers) {
     const outer = { closed: false };
     let inner = null;
@@ -61,21 +88,47 @@
       if (outer.closed) return;
       const code = newCode();
       const peer = new window.Peer(PREFIX + code, peerOptions(servers));
-      const s = inner = session(peer, handlers, servers);
-      s.code = code;
+      const s = inner = session(peer, handlers, servers, 'host', code);
       outer.code = code;
+      let peerOk = true, relayOk = false, relayTried = 0;
+      const brokers = relayBrokers();
       peer.on('open', () => handlers.onStatus('waiting', code));
       peer.on('connection', (conn) => {
-        if (s.conn) { conn.on('open', () => { conn.send({ t: 'full' }); setTimeout(() => conn.close(), 300); }); return; }
+        if (s.conn || s.relay) { conn.on('open', () => { conn.send({ t: 'full' }); setTimeout(() => conn.close(), 300); }); return; }
         s.attach(conn);
       });
       peer.on('error', (err) => {
-        if (err.type === 'unavailable-id' && tries < 5) { s.close(); start(servers, tries + 1); } // code taken
-        else s.fail(err);
+        if (err.type === 'unavailable-id' && tries < 5) { s.close(); start(servers, tries + 1); return; } // code taken
+        peerOk = false;
+        if (err.type === 'peer-unavailable') return;
+        if (s.open) { s.fail(err); return; }
+        if (!relayOk && relayTried === brokers.length) s.fail(err);   // nothing left to wait on
       });
+      for (const url of brokers) {
+        relayClient(url, 8000).then((client) => {
+          relayTried++;
+          if (!client) { if (!peerOk && !relayOk && relayTried === brokers.length) s.fail({ type: 'network' }); return; }
+          if (s.closed || s.relay) { client.end(true); return; }
+          s.relayClients.push(client);
+          relayOk = true;
+          handlers.onStatus('waiting', code);
+          client.subscribe(relayTopic(code, 'h'));
+          client.on('message', (topic, payload) => {
+            const msg = parse(payload);
+            if (!msg || s.closed) return;
+            if (msg.t === 'rhello') {
+              // the guest gave up on the direct link, so drop any half-open one
+              if (!s.open) s.useRelay(client);
+              return;
+            }
+            if (s.relay === client) s.receive(msg);
+          });
+        });
+      }
     };
     outer.send = (msg) => inner && inner.send(msg);
     outer.close = () => { outer.closed = true; if (inner) inner.close(); };
+    Object.defineProperty(outer, 'viaRelay', { get: () => !!(inner && inner.relay) });
     iceServers().then((servers) => start(servers, 0));
     return outer;
   }
@@ -87,34 +140,97 @@
     iceServers().then((servers) => {
       if (outer.closed) return;
       const peer = new window.Peer(undefined, peerOptions(servers));
-      const s = inner = session(peer, handlers, servers);
-      s.code = code;
+      const s = inner = session(peer, handlers, servers, 'guest', code);
       peer.on('open', () => {
         const conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
         s.attach(conn);
-        // PeerJS reports a missing host as a peer error, but a connection
-        // that never gets through (blocked, no relay) gives no error at all.
-        s.timer = setTimeout(() => { if (!s.open) s.fail({ type: 'timeout' }); }, 20000);
+        // a link that never gets through gives no error at all
+        s.timer = setTimeout(() => { if (!s.open) s.fallback({ type: 'timeout' }); }, 12000);
       });
-      peer.on('error', (err) => s.fail(err));
+      peer.on('error', (err) => { if (!s.open) s.fallback(err); else s.fail(err); });
     });
     outer.send = (msg) => inner && inner.send(msg);
     outer.close = () => { outer.closed = true; if (inner) inner.close(); };
+    Object.defineProperty(outer, 'viaRelay', { get: () => !!(inner && inner.relay) });
     return outer;
   }
 
-  function session(peer, handlers, servers) {
+  function session(peer, handlers, servers, role, code) {
     const s = {
-      peer, conn: null, open: false, closed: false, timer: 0, ice: '', cands: {},
+      peer, role, code, conn: null, relay: null, relayClients: [], open: false, closed: false,
+      timer: 0, ice: '', cands: {}, falling: false,
       attach(conn) {
         s.conn = conn;
         watchIce(conn);
-        conn.on('open', () => { clearTimeout(s.timer); s.open = true; handlers.onOpen(); });
-        conn.on('data', (msg) => { if (!s.closed && msg && typeof msg === 'object') handlers.onData(msg); });
-        conn.on('close', () => s.end('left'));
-        conn.on('error', () => s.end('left'));
+        conn.on('open', () => {
+          if (s.relay || s.closed) { conn.close(); return; }
+          clearTimeout(s.timer); s.open = true; handlers.onOpen();
+        });
+        conn.on('data', (msg) => { if (s.conn === conn) s.receive(msg); });
+        conn.on('close', () => { if (s.conn === conn && s.open) s.end('left'); });
+        conn.on('error', () => { if (s.conn === conn && s.open) s.end('left'); });
       },
-      send(msg) { if (s.open && s.conn && s.conn.open) s.conn.send(msg); },
+      // the direct link failed: the host keeps waiting, the guest tries the relay
+      linkFailed(type) {
+        if (s.open || s.falling) return;
+        if (role === 'host') {
+          const c = s.conn; s.conn = null;
+          try { c && c.close(); } catch (e) { /* ignore */ }
+          handlers.onStatus('waiting', code);
+        } else s.fallback({ type });
+      },
+      useRelay(client) {
+        s.relay = client;
+        if (s.conn) { try { s.conn.close(); } catch (e) { /* ignore */ } s.conn = null; }
+        for (const c of s.relayClients) if (c !== client) c.end(true);
+        s.relayClients = [client];
+        clearTimeout(s.timer);
+        s.open = true;
+        handlers.onOpen();
+      },
+      receive(msg) { if (!s.closed && msg && typeof msg === 'object') handlers.onData(msg); },
+      send(msg) {
+        if (!s.open) return;
+        if (s.relay) s.relay.publish(relayTopic(code, role === 'host' ? 'g' : 'h'), JSON.stringify(msg));
+        else if (s.conn && s.conn.open) s.conn.send(msg);
+      },
+      fallback(err) {
+        if (s.falling || s.closed || s.open) return;
+        const type = err && err.type;
+        if (!relayAvailable()) { s.fail(err); return; }
+        s.falling = true;
+        clearTimeout(s.timer);
+        if (s.conn) { try { s.conn.close(); } catch (e) { /* ignore */ } s.conn = null; }
+        handlers.onStatus('relay', code);
+        const brokers = relayBrokers();
+        let pending = brokers.length, chosen = null, hello = 0;
+        const giveUp = setTimeout(() => {
+          if (s.open || s.closed) return;
+          clearInterval(hello);
+          s.fail({ type: type === 'peer-unavailable' ? type : 'relay-failed', relayConnected: !!chosen });
+        }, 15000);
+        s.timer = giveUp;
+        for (const url of brokers) {
+          relayClient(url, 8000).then((client) => {
+            pending--;
+            if (!client) { if (!pending && !chosen) { clearTimeout(giveUp); s.fail({ type: type === 'peer-unavailable' ? type : 'relay-unreachable' }); } return; }
+            if (chosen || s.closed) { client.end(true); return; }
+            chosen = client;
+            s.relayClients.push(client);
+            client.subscribe(relayTopic(code, 'g'), () => {
+              const sayHello = () => client.publish(relayTopic(code, 'h'), JSON.stringify({ t: 'rhello' }));
+              sayHello();
+              hello = setInterval(sayHello, 1000);
+            });
+            client.on('message', (topic, payload) => {
+              const msg = parse(payload);
+              if (!msg || s.closed) return;
+              if (!s.open) { clearInterval(hello); clearTimeout(giveUp); s.useRelay(client); }
+              s.receive(msg);
+            });
+          });
+        }
+      },
       fail(err) {
         const type = err && err.type;
         let msg = {
@@ -122,14 +238,9 @@
           'network': 'Could not reach the connection server. Check your internet connection.',
           'server-error': 'The connection server is not responding. Try again in a minute.',
           'browser-incompatible': 'This browser does not support online play.',
-          'timeout': hasRelay(servers || [])
-            ? 'Could not connect to your friend, even through the relay server. Try again, or try another network.'
-            : 'Could not connect to your friend. Your networks do not allow a direct connection, and this site has no relay (TURN) server set up. See web/ice-config.js.',
-          'ice-failed': hasRelay(servers || [])
-            ? 'Found your friend\'s game, but could not link the two browsers, even through the relay server.'
-            : 'Found your friend\'s game, but your networks block a direct link, and this site has no relay (TURN) server set up yet.',
+          'relay-unreachable': 'Your networks block a direct link, and the backup relay could not be reached either.',
+          'relay-failed': 'Your networks block a direct link, and your friend\'s game did not answer through the backup relay. Ask them to reload and host again.',
         }[type] || 'Connection failed' + (type ? ' (' + type + ')' : '') + '.';
-        if (type === 'timeout' && !s.ice) msg = 'Your friend\'s game did not answer. Ask them to reload the page and host again.';
         // which step failed, and what kind of network addresses this browser found
         const found = Object.keys(s.cands).join(', ') || 'none';
         const step = { network: 1, 'server-error': 1, 'peer-unavailable': 2 }[type] || 3;
@@ -139,25 +250,33 @@
       },
       end(reason) {
         if (s.closed) return;
-        s.closed = true; s.open = false;
-        clearTimeout(s.timer);
-        try { peer.destroy(); } catch (e) { /* already gone */ }
+        s.close();
         handlers.onClose(reason);
       },
-      close() { s.closed = true; clearTimeout(s.timer); try { peer.destroy(); } catch (e) { /* ignore */ } },
+      close() {
+        s.closed = true; s.open = false;
+        clearTimeout(s.timer);
+        for (const c of s.relayClients) { try { c.end(true); } catch (e) { /* ignore */ } }
+        try { peer.destroy(); } catch (e) { /* already gone */ }
+      },
     };
     // PeerJS creates the RTCPeerConnection a moment after connect(); follow its
-    // ICE state so a blocked link fails right away with a clear message.
+    // ICE state so a blocked link is noticed within seconds.
     function watchIce(conn) {
+      let lostTimer = 0;
       const poll = setInterval(() => {
         const pc = conn.peerConnection;
-        if (s.closed) { clearInterval(poll); return; }
+        if (s.closed || s.conn !== conn) { clearInterval(poll); return; }
         if (!pc) return;
         clearInterval(poll);
         const update = () => {
+          if (s.conn !== conn) return;
           s.ice = pc.iceConnectionState;
-          if (s.ice === 'checking' && !s.open) handlers.onStatus('linking', s.code);
-          if (s.ice === 'failed' && !s.open) s.fail({ type: 'ice-failed' });
+          clearTimeout(lostTimer);
+          if (s.open) return;
+          if (s.ice === 'checking') handlers.onStatus('linking', code);
+          if (s.ice === 'failed') s.linkFailed('ice-failed');
+          if (s.ice === 'disconnected') lostTimer = setTimeout(() => s.linkFailed('ice-disconnected'), 3000);
         };
         pc.addEventListener('iceconnectionstatechange', update);
         pc.addEventListener('icecandidate', (e) => {
@@ -208,7 +327,7 @@
         team, keeper, key, dir: team === 0 ? 1 : -1, held: false, charge: 0,
         body: proxy(), kickLeg: { body: proxy() }, standLeg: { body: proxy() },
       })),
-      buffer: [], offset: null,
+      buffer: [], offset: null, delay: INTERP_DELAY,
     };
 
     view.receive = function (msg, nowSec) {
@@ -230,7 +349,7 @@
     view.update = function (nowSec) {
       const buf = view.buffer;
       if (!buf.length) return;
-      const rt = nowSec + view.offset - INTERP_DELAY;
+      const rt = nowSec + view.offset - view.delay;
       let a = buf[0], b = buf[0];
       for (let i = buf.length - 1; i >= 0; i--) {
         if (buf[i][0] <= rt) { a = buf[i]; b = buf[i + 1] || buf[i]; break; }
@@ -250,5 +369,5 @@
     return view;
   }
 
-  window.FootballNet = { available, host, join, encode, createView, cleanCode, SNAPSHOT_HZ };
+  window.FootballNet = { available, host, join, encode, createView, cleanCode, SNAPSHOT_HZ, RELAY_HZ };
 })();

@@ -1,8 +1,9 @@
-// Relay (TURN) servers for online play.
+// Optional relay (TURN) servers for online play.
 //
-// Most home connections work directly and need nothing here. Strict
-// networks (many mobile carriers, offices, schools) need a TURN relay, and
-// PeerJS's free relays no longer exist, so set one up here. Choose one option.
+// You don't need to set anything here. When two browsers can't link
+// directly, the game already falls back to a free public relay (see net.js).
+// A TURN server gives lower delay on strict networks, so add one here if
+// you have one.
 //
 // Option 1, Metered.ca (free plan, has TCP/TLS on port 443):
 //   1. Sign up at https://www.metered.ca/tools/openrelay/ and create an app.
