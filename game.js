@@ -49,8 +49,8 @@
 
     hopSpeed: 6.6,                // get-up hop
     hopUpMin: 6.8, hopUpMax: 10.5,  // vertical speed: tap .. full charge (~1.2 m .. 2.7 m)
-    swayAmp: 16,                  // degrees standing players rock back and forth
-    swayPeriod: 1.8,              // s per full sway
+    swayAmp: 20,                  // degrees standing players rock back and forth
+    swayPeriod: 1.1,              // s per full sway
     maxAim: 32,                   // degrees: steepest locked jump direction
     hopCooldown: 0.22,
     maxPlayerSpeed: 12,
