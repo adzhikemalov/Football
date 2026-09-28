@@ -514,6 +514,14 @@
       ctx.beginPath(); ctx.arc(0, hy + 0.02, r * 1.02, 0.1, Math.PI - 0.1); ctx.fill();
       ctx.fillStyle = '#1a1a1a';
       ctx.beginPath(); ctx.arc(p.dir * r * 0.5, hy - 0.02, 0.035, 0, 6.28); ctx.fill();
+      // while held the lean is locked: show where the jump will go
+      if (p.held) {
+        const a0 = hy + r + 0.12, len = 0.3 + 0.35 * p.charge;
+        ctx.strokeStyle = ctx.fillStyle = p.charge >= 1 ? '#f2c94c' : '#ffffff';
+        ctx.lineWidth = 0.06; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(0, a0); ctx.lineTo(0, a0 + len); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-0.12, a0 + len - 0.06); ctx.lineTo(0, a0 + len + 0.1); ctx.lineTo(0.12, a0 + len - 0.06); ctx.closePath(); ctx.fill();
+      }
       if (!p.keeper) {
         ctx.save(); ctx.translate(p.dir * 0.2, 0.36); ctx.rotate(Math.PI - (p.held ? 0.9 : 0.35) * p.dir);
         ctx.fillStyle = shirt; rrect(-0.06, 0, 0.12, 0.48, 0.06); ctx.fill();
@@ -525,7 +533,7 @@
 
     // key hint + charge bar above the head
     const pos = p.body.getPosition();
-    const hx = sx(pos.x), hy = sy(pos.y + 1.05);
+    const hx = sx(pos.x), hy = sy(pos.y + (p.held ? 1.95 : 1.05));  // above the aim arrow while held
     const human = ownPlayers().includes(match.players.indexOf(p));
     if (human) {
       ctx.font = `700 ${Math.max(10, S * 0.2)}px ui-monospace, monospace`;

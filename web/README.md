@@ -20,10 +20,13 @@ cd web && python3 -m http.server 8000   # then open http://localhost:8000
 | Blue | `D`     | `A`    |
 | Red  | `←`     | `→`    |
 
-**Hold** to wind up the kicking leg and **release** to kick and hop.
-A quick tap gives a small hop and a light touch. A full charge (the bar over
-the head) gives a big jump and a hard shot. Players hop in the direction
-they lean. Pressing while lying on the ground stands the player back up.
+Standing players rock back and forth (about ±16°, every 1.8 s), and a jump
+always goes where the head points. **Press** when the head leans the way you
+want to go: the lean locks and an arrow over the head shows the jump
+direction. **Hold** to charge (the bar fills) and **release** to kick and
+jump. A quick tap gives a hop of about 1 m and a light touch. A full charge
+gives a jump of about 2 m and a hard shot. Kicks always aim at the
+opponent's goal. Pressing while lying on the ground stands the player back up.
 `P` pauses, `R` restarts, and on phones on-screen buttons appear.
 You can play against the CPU or with two people on one keyboard. First to 5
 goals wins.
@@ -99,12 +102,13 @@ broker with WebSockets, then open
   bounce off a box.
 * **Leg friction** was 100 (`ActiveLeg.physicsMaterial2D`), which made the
   ball stick to the feet. It is now 0.6.
+* **Bouncier ball.** Restitution is 0.8 (a 3 m drop bounces back to about 2 m).
 * **Heads and headers.** Players have a head, and a jumping header gets a
   small push forward.
 * **Self-righting.** A balancing torque replaces the centre-of-mass swap
   in `Player.cs`. Fallen players get up after about 1 s, or right away when
   you press their key.
-* **Goals.** The roof slopes toward the pitch, so the ball can't rest on
+* **Goals** are 2.8 m tall. The roof slopes toward the pitch, so the ball can't rest on
   top of a goal. A ball stuck on a player for a few seconds gets nudged free.
 
 ## Files
