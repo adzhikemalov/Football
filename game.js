@@ -49,8 +49,8 @@
 
     hopSpeed: 6.6,                // get-up hop
     hopUpMin: 6.8, hopUpMax: 10.5,  // vertical speed: tap .. full charge (~1.2 m .. 2.7 m)
-    swayAmp: 20,                  // degrees standing players rock back and forth
-    swayPeriod: 1.1,              // s per full sway
+    swayAmp: 24,                  // degrees standing players rock back and forth
+    swayPeriod: 0.7,              // s per full sway
     maxAim: 32,                   // degrees: steepest locked jump direction
     hopCooldown: 0.22,
     maxPlayerSpeed: 12,
@@ -318,10 +318,14 @@
       }
       // standing players sway so the head (and the next jump) points forward
       // or back in turn; while the button is held the lean stays locked
-      let target = 0;
+      let target = 0, targetW = 0;
       if (p.held && !fallen) { target = p.aim; k = Math.max(k, CFG.aimK); d = Math.max(d, CFG.uprightD); }
-      else if (onFeet) target = CFG.swayAmp * DEG * Math.sin(match.time * 2 * Math.PI / CFG.swayPeriod + p.swayPhase);
-      body.applyTorque(-(k * (angle - target) + d * w), true);
+      else if (onFeet) {
+        const om = 2 * Math.PI / CFG.swayPeriod, ph = match.time * om + p.swayPhase;
+        target = CFG.swayAmp * DEG * Math.sin(ph);
+        targetW = CFG.swayAmp * DEG * om * Math.cos(ph);   // damp relative to the sway, so it doesn't lag
+      }
+      body.applyTorque(-(k * (angle - target) + d * (w - targetW)), true);
 
       const v = body.getLinearVelocity();
       const sp = v.length();
