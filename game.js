@@ -28,8 +28,8 @@
     fieldHalf: 7,                 // walls at x = ±7 (scene "Bound" objects)
     ceiling: 9,
     goalMouthX: 6.15,             // front of the goal (crossbar)
-    goalHeight: 2.25,
-    goalBackHeight: 2.8,
+    goalHeight: 2.8,
+    goalBackHeight: 3.35,
     winScore: 5,
 
     bodyW: 0.5, bodyH: 1.0,       // Player BoxCollider2D
@@ -41,14 +41,17 @@
 
     ballR: 0.3,                   // CircleCollider2D radius
     ballDensity: 1,               // -> mass ~0.28 (auto mass in Unity)
-    ballRestitution: 0.55,
+    ballRestitution: 0.8,
     ballFriction: 0.3,
 
     legFriction: 0.6,             // was 100 (ActiveLeg.physicsMaterial2D)
     groundFriction: 1.2,
 
-    hopSpeed: 6.6,
-    hopForward: 0.5,              // forward bias of the hop direction
+    hopSpeed: 6.6,                // get-up hop
+    hopUpMin: 6.8, hopUpMax: 10.5,  // vertical speed: tap .. full charge (~1.2 m .. 2.7 m)
+    swayAmp: 16,                  // degrees standing players rock back and forth
+    swayPeriod: 1.8,              // s per full sway
+    maxAim: 32,                   // degrees: steepest locked jump direction
     hopCooldown: 0.22,
     maxPlayerSpeed: 12,
 
@@ -63,7 +66,9 @@
     kickMinSpeed: 7.5,
     kickMaxSpeed: 16.5,
 
-    uprightK: 650, uprightD: 70,  // self-righting torque on the ground
+    uprightK: 650, uprightD: 120, // self-righting torque on the ground
+    aimK: 1400,                   // holds the locked lean while the button is held
+    coyoteTime: 0.15,             // s after leaving the ground a jump still works
     airK: 160, airD: 18,
   };
 
@@ -119,7 +124,7 @@
       // ball
       const ball = world.createBody({
         type: 'dynamic', position: Vec2(0, 3.2), bullet: true,
-        linearDamping: 0.08, angularDamping: 0.6,
+        linearDamping: 0.03, angularDamping: 0.6,
       });
       ball.createFixture(new pl.Circle(CFG.ballR), {
         density: CFG.ballDensity, friction: CFG.ballFriction,
@@ -189,7 +194,8 @@
       const p = {
         team, keeper, dir, key, body, head, kickLeg, standLeg, spawnX: x,
         held: false, holdTime: 0, charge: 0, kickTimer: 99, kickPower: 0,
-        hopCooldown: 0, lastAssist: -1, grounded: false, fallenTime: 0,
+        hopCooldown: 0, lastAssist: -1, grounded: false, fallenTime: 0, aim: 0,
+        swayPhase: (team * 2 + (keeper ? 1 : 0)) * 1.7,
         pendingPress: false, pendingRelease: false,
       };
       for (const part of [body, kickLeg.body, standLeg.body]) part.setUserData({ player: p });
@@ -239,28 +245,27 @@
     function drivePlayer(p, dt) {
       const body = p.body;
       p.grounded = isGrounded(p);
+      p.airTime = p.grounded ? 0 : (p.airTime || 0) + dt;
       p.hopCooldown -= dt;
       p.kickTimer += dt;
       const angle = wrapAngle(body.getAngle());
       const fallen = Math.abs(angle) > 65 * DEG;
 
-      const hop = (speed, getUp) => {
-        if (!p.grounded || p.hopCooldown > 0) return;
+      const hop = (up, getUp) => {
+        if (p.airTime > CFG.coyoteTime || p.hopCooldown > 0) return;
         p.hopCooldown = CFG.hopCooldown;
         const mass = body.getMass() + p.kickLeg.body.getMass() + p.standLeg.body.getMass();
         let dir;
         if (getUp) {
           // mostly straight up with a spin back towards upright
-          dir = Vec2(p.dir * 0.15, 1);
+          dir = Vec2(p.dir * 0.15 * up, up);
           body.setAngularVelocity(-angle * 7);
         } else {
-          // along the body's up axis, so leaning back hops backwards
-          const up = body.getWorldVector(Vec2(0, 1));
-          dir = Vec2(up.x * 0.75 + p.dir * CFG.hopForward, up.y * 0.75 + 0.35);
+          // straight along the locked lean: the jump goes where the head points
+          dir = Vec2(-Math.sin(p.aim) * up, Math.cos(p.aim) * up);
         }
-        dir.normalize();
         const v = body.getLinearVelocity();
-        const add = Vec2(dir.x * speed - v.x * 0.5, dir.y * speed - Math.min(v.y, 0));
+        const add = Vec2(dir.x - v.x * 0.5, dir.y - Math.min(v.y, 0));
         body.applyLinearImpulse(Vec2(add.x * mass, add.y * mass), body.getWorldCenter(), true);
         match.events.push({ type: 'hop', p });
       };
@@ -269,6 +274,8 @@
         p.pendingPress = false;
         p.holdTime = 0;
         p.charge = 0;
+        // lock the lean: holding keeps the head pointing this way
+        p.aim = clamp(angle, -CFG.maxAim * DEG, CFG.maxAim * DEG);
         if (fallen) hop(CFG.hopSpeed * 0.8, true);
       }
       if (p.held) {
@@ -281,7 +288,7 @@
         p.pendingRelease = false;
         p.kickPower = CFG.minCharge + (1 - CFG.minCharge) * p.charge;
         p.kickTimer = 0;
-        if (!fallen) hop(CFG.hopSpeed * (0.75 + 0.4 * p.charge), false);
+        if (!fallen) hop(CFG.hopUpMin + (CFG.hopUpMax - CFG.hopUpMin) * p.charge, false);
         p.charge = 0;
         match.events.push({ type: 'swing', p });
       }
@@ -309,7 +316,12 @@
       } else {
         p.fallenTime = 0;
       }
-      body.applyTorque(-(k * angle + d * w), true);
+      // standing players sway so the head (and the next jump) points forward
+      // or back in turn; while the button is held the lean stays locked
+      let target = 0;
+      if (p.held && !fallen) { target = p.aim; k = Math.max(k, CFG.aimK); d = Math.max(d, CFG.uprightD); }
+      else if (onFeet) target = CFG.swayAmp * DEG * Math.sin(match.time * 2 * Math.PI / CFG.swayPeriod + p.swayPhase);
+      body.applyTorque(-(k * (angle - target) + d * w), true);
 
       const v = body.getLinearVelocity();
       const sp = v.length();
@@ -435,7 +447,6 @@
     const pos = p.body.getPosition();
     const ahead = (b.x - pos.x) * p.dir;        // ball distance in attacking direction
     const dy = b.y - pos.y;
-    const tilt = wrapAngle(p.body.getAngle()) * p.dir; // >0 leaning back
     ai.wait -= dt;
 
     if (p.held) {
@@ -451,34 +462,34 @@
     }
     if (ai.wait > 0 || !p.grounded) return;
 
+    // the jump goes where the head points, so wait for the sway to lean the
+    // way we want to go (>0: leaning towards the opponent's goal)
+    const leanFwd = -wrapAngle(p.body.getAngle()) * p.dir;
+    const leaning = (want) => leanFwd * want > 0.1;
+    const fallen = Math.abs(wrapAngle(p.body.getAngle())) > 65 * DEG;
+    if (fallen) { match.press(i); ai.holdFor = 0.05; ai.wait = 0.4; return; }
+
     if (p.keeper) {
-      const home = p.spawnX;
+      const home = (p.spawnX - pos.x) * p.dir;      // >0: home is ahead
       const threat = ahead > -0.5 && ahead < 3.2 && dy < 1.8;
       const coming = bv.x * p.dir < -1 && ahead < 5 && ahead > -0.5;
-      if (threat || coming || Math.abs(wrapAngle(p.body.getAngle())) > 65 * DEG) {
+      if (threat || coming) {
         match.press(i);
         ai.holdFor = threat && ahead < 1.2 ? 0.05 + Math.random() * 0.2 : 0.35;
-      } else if ((pos.x - home) * p.dir > 1.2 && tilt > 0.05) {
-        match.press(i); ai.holdFor = 0.05;           // hop back home while leaning back
+        ai.wait = 0.2 + Math.random() * 0.2;
+      } else if (Math.abs(home) > 1.2 && leaning(Math.sign(home))) {
+        match.press(i); ai.holdFor = 0.05;           // hop back home
+        ai.wait = 0.3;
       }
-      ai.wait = Math.max(ai.wait, 0.2 + Math.random() * 0.2);
       return;
     }
 
-    if (Math.abs(wrapAngle(p.body.getAngle())) > 65 * DEG) {
-      match.press(i); ai.holdFor = 0.05; ai.wait = 0.4; return;
-    }
     if (ahead > -0.3 && ahead < 1.3 && dy < 1.2) {
-      match.press(i);
-      ai.holdFor = 0.1 + Math.random() * 0.45;
+      if (leanFwd > -0.05) { match.press(i); ai.holdFor = 0.1 + Math.random() * 0.45; }
     } else if (ahead >= 1.3) {
-      match.press(i); ai.holdFor = 0.04;
-      ai.wait = 0.25 + Math.random() * 0.35;
-    } else if (ahead <= -0.3 && tilt > 0.12) {
-      match.press(i); ai.holdFor = 0.04;             // leaning back: hop backwards
-      ai.wait = 0.3;
-    } else {
-      ai.wait = 0.1;
+      if (leaning(1)) { match.press(i); ai.holdFor = 0.04 + Math.random() * 0.2; ai.wait = 0.2 + Math.random() * 0.3; }
+    } else if (ahead <= -0.3) {
+      if (leaning(-1)) { match.press(i); ai.holdFor = 0.04 + Math.random() * 0.2; ai.wait = 0.3; }
     }
   }
 
