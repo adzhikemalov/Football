@@ -202,6 +202,8 @@
         const link = location.href.split('#')[0] + '#' + code;
         codeBox.querySelector('input').value = link;
         onlineStatus.textContent = 'Waiting for your friend to join…';
+      } else if (state === 'relay') {
+        onlineStatus.textContent = 'Direct link blocked. Connecting through the backup relay…';
       } else if (state === 'linking') {
         onlineStatus.textContent = role === 'host' ? 'Your friend found the game. Linking…' : 'Found the game. Linking to your friend…';
       } else {
@@ -212,7 +214,7 @@
       lastHeard = performance.now();
       document.querySelector('.row.join').hidden = false;
       if (role === 'host') { start('host'); net.send({ t: 'hello' }); }
-      else start('guest');
+      else { start('guest'); if (net.viaRelay) match.delay = 0.2; }  // relay has more jitter
     },
     onData(msg) {
       lastHeard = performance.now();
@@ -287,7 +289,7 @@
       if (n === 10) acc = 0;
       if (mode === 'host' && net) {
         pendingEvents.push(...match.events);
-        if (now - lastSend >= 1000 / NET.SNAPSHOT_HZ) {
+        if (now - lastSend >= 1000 / (net.viaRelay ? NET.RELAY_HZ : NET.SNAPSHOT_HZ)) {
           lastSend = now;
           net.send(NET.encode(match, pendingEvents));
           pendingEvents = [];
