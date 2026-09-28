@@ -21,10 +21,9 @@ cd web && python3 -m http.server 8000   # then open http://localhost:8000
 | Red  | `←`     | `→`    |
 
 Standing players rock back and forth (about ±15°, every 0.7 s), and a jump
-always goes where the head points. **Press** when the head leans the way you
-want to go: the lean locks and an arrow over the head shows the jump
-direction. **Hold** to charge (the bar fills) and **release** to kick and
-jump. A quick tap gives a hop of about 1 m and a light touch. A full charge
+always goes where the head points. **Hold** to charge (the bar fills; the player
+keeps swaying and an arrow over the head shows where the jump would go) and
+**release** to kick and jump along the head's direction at that moment. A quick tap gives a hop of about 1 m and a light touch. A full charge
 gives a jump of about 2 m and a hard shot. Kicks always aim at the
 opponent's goal. Pressing while lying on the ground stands the player back up.
 `P` pauses, `R` restarts, and on phones on-screen buttons appear.
@@ -108,7 +107,7 @@ broker with WebSockets, then open
 * **Self-righting.** A balancing torque replaces the centre-of-mass swap
   in `Player.cs`. Fallen players get up after about 1 s, or right away when
   you press their key.
-* **Goals** are 2.8 m tall. The roof slopes toward the pitch, so the ball can't rest on
+* **Goals** are 3.2 m tall. The roof slopes toward the pitch, so the ball can't rest on
   top of a goal. A ball stuck on a player for a few seconds gets nudged free.
 
 ## Files

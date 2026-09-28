@@ -419,9 +419,9 @@
     ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 1;
     const step = 0.18;
     for (let x = Math.min(g.fx, g.bx); x <= Math.max(g.fx, g.bx) + 0.01; x += step) {
-      ctx.beginPath(); ctx.moveTo(sx(x), sy(0)); ctx.lineTo(sx(x), sy(3)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx(x), sy(0)); ctx.lineTo(sx(x), sy(g.by)); ctx.stroke();
     }
-    for (let y = 0; y <= 3; y += step) {
+    for (let y = 0; y <= g.by; y += step) {
       ctx.beginPath(); ctx.moveTo(sx(g.fx), sy(y)); ctx.lineTo(sx(g.bx), sy(y)); ctx.stroke();
     }
     ctx.restore();
@@ -514,7 +514,7 @@
       ctx.beginPath(); ctx.arc(0, hy + 0.02, r * 1.02, 0.1, Math.PI - 0.1); ctx.fill();
       ctx.fillStyle = '#1a1a1a';
       ctx.beginPath(); ctx.arc(p.dir * r * 0.5, hy - 0.02, 0.035, 0, 6.28); ctx.fill();
-      // while held the lean is locked: show where the jump will go
+      // while held, show where a release would send the jump (follows the sway)
       if (p.held) {
         const a0 = hy + r + 0.12, len = 0.3 + 0.35 * p.charge;
         ctx.strokeStyle = ctx.fillStyle = p.charge >= 1 ? '#f2c94c' : '#ffffff';
