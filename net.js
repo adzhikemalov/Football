@@ -11,12 +11,38 @@
 
   const available = () => typeof window.Peer === 'function' && typeof window.RTCPeerConnection === 'function';
 
+  // ICE servers. PeerJS's built-in TURN relays (*.turn.peerjs.com) no longer
+  // resolve, so they are replaced entirely: STUN for direct connections plus
+  // whatever TURN relay ice-config.js provides for networks that need one.
+  const STUN = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
+  let icePromise = null;
+  function iceServers() {
+    if (icePromise) return icePromise;
+    const cfg = window.FOOTBALL_ICE || {};
+    const fixed = Array.isArray(cfg.iceServers) ? cfg.iceServers : [];
+    let fetched = Promise.resolve([]);
+    if (cfg.credentialsUrl && typeof fetch === 'function') {
+      // e.g. Metered.ca: returns a ready-made iceServers array
+      const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      const timer = setTimeout(() => ctl && ctl.abort(), 5000);
+      fetched = fetch(cfg.credentialsUrl, { signal: ctl && ctl.signal })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((list) => (Array.isArray(list) ? list : (list && list.iceServers) || []))
+        .catch(() => [])
+        .finally(() => clearTimeout(timer));
+    }
+    icePromise = fetched.then((list) => STUN.concat(fixed, list));
+    return icePromise;
+  }
+  const hasRelay = (servers) => servers.some((s) => [].concat(s.urls || s.url || []).some((u) => /^turns?:/.test(u)));
+
   // ?peer=localhost:9000 points at a self-hosted PeerServer (used for testing)
-  function peerOptions() {
+  function peerOptions(servers) {
+    const opts = { debug: 0, config: { iceServers: servers } };
     const m = /[?&]peer=([^&#]+)/.exec(location.search);
-    if (!m) return { debug: 0 };
+    if (!m) return opts;
     const [host, port] = decodeURIComponent(m[1]).split(':');
-    return { host, port: +port || 9000, path: '/', secure: location.protocol === 'https:', debug: 0 };
+    return Object.assign(opts, { host, port: +port || 9000, path: '/', secure: location.protocol === 'https:' });
   }
 
   function newCode() {
@@ -29,12 +55,13 @@
   // Session wraps one Peer + one DataConnection. handlers: onStatus(text),
   // onOpen(), onData(msg), onClose(reason)
   function host(handlers) {
-    const outer = {};
+    const outer = { closed: false };
     let inner = null;
-    const start = (tries) => {
+    const start = (servers, tries) => {
+      if (outer.closed) return;
       const code = newCode();
-      const peer = new window.Peer(PREFIX + code, peerOptions());
-      const s = inner = session(peer, handlers);
+      const peer = new window.Peer(PREFIX + code, peerOptions(servers));
+      const s = inner = session(peer, handlers, servers);
       outer.code = code;
       peer.on('open', () => handlers.onStatus('waiting', code));
       peer.on('connection', (conn) => {
@@ -42,33 +69,39 @@
         s.attach(conn);
       });
       peer.on('error', (err) => {
-        if (err.type === 'unavailable-id' && tries < 5) { s.close(); start(tries + 1); } // code taken
+        if (err.type === 'unavailable-id' && tries < 5) { s.close(); start(servers, tries + 1); } // code taken
         else s.fail(err);
       });
     };
-    outer.send = (msg) => inner.send(msg);
-    outer.close = () => inner.close();
-    start(0);
+    outer.send = (msg) => inner && inner.send(msg);
+    outer.close = () => { outer.closed = true; if (inner) inner.close(); };
+    iceServers().then((servers) => start(servers, 0));
     return outer;
   }
 
   function join(code, handlers) {
-    const peer = new window.Peer(undefined, peerOptions());
-    const s = session(peer, handlers);
-    s.code = code;
+    const outer = { closed: false, code };
+    let inner = null;
     handlers.onStatus('connecting', code);
-    peer.on('open', () => {
-      const conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
-      s.attach(conn);
-      // PeerJS reports a missing host as a peer error, but a host that
-      // disappears mid-handshake gives no error at all.
-      s.timer = setTimeout(() => { if (!s.open) s.fail({ type: 'timeout' }); }, 15000);
+    iceServers().then((servers) => {
+      if (outer.closed) return;
+      const peer = new window.Peer(undefined, peerOptions(servers));
+      const s = inner = session(peer, handlers, servers);
+      peer.on('open', () => {
+        const conn = peer.connect(PREFIX + code, { reliable: true, serialization: 'json' });
+        s.attach(conn);
+        // PeerJS reports a missing host as a peer error, but a connection
+        // that never gets through (blocked, no relay) gives no error at all.
+        s.timer = setTimeout(() => { if (!s.open) s.fail({ type: 'timeout' }); }, 20000);
+      });
+      peer.on('error', (err) => s.fail(err));
     });
-    peer.on('error', (err) => s.fail(err));
-    return s;
+    outer.send = (msg) => inner && inner.send(msg);
+    outer.close = () => { outer.closed = true; if (inner) inner.close(); };
+    return outer;
   }
 
-  function session(peer, handlers) {
+  function session(peer, handlers, servers) {
     const s = {
       peer, conn: null, open: false, closed: false, timer: 0,
       attach(conn) {
@@ -85,7 +118,9 @@
           'network': 'Could not reach the connection server. Check your internet connection.',
           'server-error': 'The connection server is not responding. Try again in a minute.',
           'browser-incompatible': 'This browser does not support online play.',
-          'timeout': 'Could not connect to your friend. One of your networks may block direct connections.',
+          'timeout': hasRelay(servers || [])
+            ? 'Could not connect to your friend, even through the relay server. Try again, or try another network.'
+            : 'Could not connect to your friend. Your networks do not allow a direct connection, and this site has no relay (TURN) server set up. See web/ice-config.js.',
         }[err && err.type] || 'Connection failed' + (err && err.type ? ' (' + err.type + ')' : '') + '.';
         s.end(msg);
       },
