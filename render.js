@@ -15,7 +15,9 @@
   ];
   const SKIN = ['#f1c7a1', '#c98e62', '#8d5a3b', '#e8b48a'];
   const HAIR = ['#3b2a1e', '#161616', '#6b3f1f', '#d9b25c'];
-  const KEYMAP = { KeyA: 0, KeyD: 1, ArrowRight: 2, ArrowLeft: 3 };
+  // W / Up arrow drive a whole team (keeper + striker) with one button, like the
+  // reference game; A/D and Left/Right still drive each player separately.
+  const KEYMAP = { KeyA: [0], KeyD: [1], ArrowRight: [2], ArrowLeft: [3], KeyW: [0, 1], ArrowUp: [2, 3] };
 
   let match = null;
   let mode = null;            // 'cpu' | '2p'
@@ -89,15 +91,17 @@
     if (mode === 'guest') return [2, 3];
     return [0, 1, 2, 3];
   }
-  function playerForKey(code) {
+  function playersForKey(code) {
     if (mode === 'host' || mode === 'guest') {
+      const own = ownPlayers();
+      if (code === 'KeyW' || code === 'ArrowUp') return own;
       const left = code === 'KeyA' || code === 'ArrowLeft';
       const right = code === 'KeyD' || code === 'ArrowRight';
-      if (!left && !right) return -1;
-      if (mode === 'host') return left ? 0 : 1;
-      return right ? 2 : 3;
+      if (!left && !right) return [];
+      if (mode === 'host') return [left ? 0 : 1];
+      return [right ? 2 : 3];
     }
-    return code in KEYMAP ? KEYMAP[code] : -1;
+    return code in KEYMAP ? KEYMAP[code] : [];
   }
   function press(i) {
     if (!match || paused || !ownPlayers().includes(i)) return;
@@ -118,10 +122,10 @@
   const held = {};
   window.addEventListener('keydown', (e) => {
     if (e.target && e.target.tagName === 'INPUT') return;
-    const i = playerForKey(e.code);
-    if (i >= 0) {
+    const ids = playersForKey(e.code);
+    if (ids.length) {
       e.preventDefault();
-      if (!e.repeat && !held[e.code]) { held[e.code] = true; audio(); press(i); }
+      if (!e.repeat && !held[e.code]) { held[e.code] = true; audio(); for (const i of ids) press(i); }
     } else if (e.code === 'KeyP' || e.code === 'Escape') {
       if (match && !net) paused = !paused;
     } else if (e.code === 'KeyR') {
@@ -131,8 +135,8 @@
     }
   });
   window.addEventListener('keyup', (e) => {
-    const i = playerForKey(e.code);
-    if (i >= 0) { e.preventDefault(); held[e.code] = false; release(i); }
+    const ids = playersForKey(e.code);
+    if (ids.length) { e.preventDefault(); held[e.code] = false; for (const i of ids) release(i); }
   });
   window.addEventListener('blur', () => {
     for (const k in held) held[k] = false;
@@ -279,10 +283,10 @@
       match.update(now / 1000);
       handleEvents();
     } else if (match && !paused) {
-      acc += dt;
+      acc += dt * CFG.timeScale;   // the match runs in slight slow motion, like the reference
       let n = 0;
       while (acc >= CFG.step && n < 10) {
-        if (match.state === 'play' && mode === 'cpu') { cpuThink(match, 2, CFG.step); cpuThink(match, 3, CFG.step); }
+        if (mode === 'cpu') { cpuThink(match, 2, CFG.step); cpuThink(match, 3, CFG.step); }
         match.stepFixed();
         acc -= CFG.step; n++;
       }
@@ -313,7 +317,11 @@
         }
       } else if (e.type === 'post') sfx.post();
       else if (e.type === 'hop') { /* quiet */ }
-      else if (e.type === 'whistle') { sfx.whistle(); banner = { text: 'KICK OFF', color: '#f4f1e8', t: 0, dur: 1.0 }; }
+      else if (e.type === 'whistle') {
+        sfx.whistle();
+        banner = e.mod ? { text: e.mod, sub: 'kick off', color: '#f2c94c', t: 0, dur: 1.6 }
+                       : { text: 'KICK OFF', color: '#f4f1e8', t: 0, dur: 1.0 };
+      }
       else if (e.type === 'goal') {
         sfx.goal();
         const t = TEAM[e.team];
@@ -385,7 +393,7 @@
     ctx.fillStyle = '#f2c94c';
     ctx.font = `700 ${Math.max(10, S * 0.26)}px "Trebuchet MS", sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    const words = ['FOOTBALL PHYSICS', 'HOLD · RELEASE · SCORE', 'FOOTBALL PHYSICS', 'PLANCK.JS'];
+    const words = ['FOOTBALL PHYSICS', 'TAP · HOP · KICK', 'FOOTBALL PHYSICS', 'PLANCK.JS'];
     for (let i = 0; i < 4; i++) ctx.fillText(words[i], W * (i + 0.5) / 4, bt + bh / 2);
 
     // grass
@@ -406,7 +414,9 @@
 
   function goalShape(side) {
     const fx = side * CFG.goalMouthX, bx = side * CFG.fieldHalf;
-    return { fx, bx, fy: CFG.goalHeight, by: CFG.goalBackHeight };
+    const fy = match ? match.goalHeight : CFG.goalHeight;
+    const by = match ? match.goalBackHeight : CFG.goalBackHeight;
+    return { fx, bx, fy, by };
   }
   function drawGoalNet(side) {
     const g = goalShape(side);
@@ -491,7 +501,7 @@
           ctx.restore();
         }
       } else {
-        const swing = Math.sin(p.body.getAngularVelocity() * 0.2 + (p.held ? 1 : 0)) * 0.4;
+        const swing = p.held ? -2.4 : Math.sin(p.body.getAngularVelocity() * 0.2) * 0.4;
         ctx.save(); ctx.translate(-p.dir * 0.2, 0.36); ctx.rotate(Math.PI + swing * p.dir);
         ctx.fillStyle = shade(shirt); rrect(-0.06, 0, 0.12, 0.48, 0.06); ctx.fill();
         ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(0, 0.5, 0.065, 0, 6.28); ctx.fill();
@@ -514,16 +524,8 @@
       ctx.beginPath(); ctx.arc(0, hy + 0.02, r * 1.02, 0.1, Math.PI - 0.1); ctx.fill();
       ctx.fillStyle = '#1a1a1a';
       ctx.beginPath(); ctx.arc(p.dir * r * 0.5, hy - 0.02, 0.035, 0, 6.28); ctx.fill();
-      // while held, show where a release would send the jump (follows the sway)
-      if (p.held) {
-        const a0 = hy + r + 0.12, len = 0.3 + 0.35 * p.charge;
-        ctx.strokeStyle = ctx.fillStyle = p.charge >= 1 ? '#f2c94c' : '#ffffff';
-        ctx.lineWidth = 0.06; ctx.lineCap = 'round';
-        ctx.beginPath(); ctx.moveTo(0, a0); ctx.lineTo(0, a0 + len); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(-0.12, a0 + len - 0.06); ctx.lineTo(0, a0 + len + 0.1); ctx.lineTo(0.12, a0 + len - 0.06); ctx.closePath(); ctx.fill();
-      }
       if (!p.keeper) {
-        ctx.save(); ctx.translate(p.dir * 0.2, 0.36); ctx.rotate(Math.PI - (p.held ? 0.9 : 0.35) * p.dir);
+        ctx.save(); ctx.translate(p.dir * 0.2, 0.36); ctx.rotate(Math.PI - (p.held ? 2.6 : 0.35) * p.dir);
         ctx.fillStyle = shirt; rrect(-0.06, 0, 0.12, 0.48, 0.06); ctx.fill();
         ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(0, 0.5, 0.065, 0, 6.28); ctx.fill();
         ctx.restore();
@@ -531,9 +533,9 @@
     });
     drawLeg(p, p.kickLeg, true);
 
-    // key hint + charge bar above the head
+    // key hint above the head
     const pos = p.body.getPosition();
-    const hx = sx(pos.x), hy = sy(pos.y + (p.held ? 1.95 : 1.05));  // above the aim arrow while held
+    const hx = sx(pos.x), hy = sy(pos.y + 1.05);
     const human = ownPlayers().includes(match.players.indexOf(p));
     if (human) {
       ctx.font = `700 ${Math.max(10, S * 0.2)}px ui-monospace, monospace`;
@@ -542,17 +544,11 @@
       rrectPx(hx - S * 0.17, hy - S * 0.33 - S * 0.13, S * 0.34, S * 0.26, 4); ctx.fill();
       ctx.fillStyle = '#ffffff'; ctx.fillText(p.key, hx, hy - S * 0.33);
     }
-    if (p.held) {
-      const bw = S * 0.7, bh = Math.max(4, S * 0.09);
-      ctx.fillStyle = 'rgba(0,0,0,0.45)'; rrectPx(hx - bw / 2, hy - bh / 2, bw, bh, bh / 2); ctx.fill();
-      ctx.fillStyle = p.charge >= 1 ? '#f2c94c' : '#ffffff';
-      rrectPx(hx - bw / 2, hy - bh / 2, Math.max(bh, bw * p.charge), bh, bh / 2); ctx.fill();
-    }
   }
   function rrectPx(x, y, w, h, r) { rrect(x, y, w, h, Math.min(r, w / 2, h / 2)); }
 
   function drawBall(ball) {
-    const p = ball.getPosition(), r = CFG.ballR;
+    const p = ball.getPosition(), r = match ? match.ballR : CFG.ballR;
     // shadow
     const sh = Math.max(0.2, 1 - p.y / 6);
     ctx.fillStyle = `rgba(0,0,0,${0.25 * sh})`;

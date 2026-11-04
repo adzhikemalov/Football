@@ -15,20 +15,26 @@ dependencies, so this also works:
 cd web && python3 -m http.server 8000   # then open http://localhost:8000
 ```
 
-| Team | Striker | Keeper |
-|------|---------|--------|
-| Blue | `D`     | `A`    |
-| Red  | `←`     | `→`    |
+| Team | Whole team | Keeper | Striker |
+|------|------------|--------|---------|
+| Blue | `W`        | `A`    | `D`     |
+| Red  | `↑`        | `→`    | `←`     |
 
-Standing players rock back and forth (about ±15°, every 0.7 s), and a jump
-always goes where the head points. **Hold** to charge (the bar fills; the player
-keeps swaying and an arrow over the head shows where the jump would go) and
-**release** to kick and jump along the head's direction at that moment. A quick tap gives a hop of about 1 m and a light touch. A full charge
-gives a jump of about 2 m and a hard shot. Kicks always aim at the
-opponent's goal. Pressing while lying on the ground stands the player back up.
-`P` pauses, `R` restarts, and on phones on-screen buttons appear.
-You can play against the CPU or with two people on one keyboard. First to 5
-goals wins.
+One button does everything, like in Soccer Physics. **Press** to kick and hop:
+the kicking leg swings forward, the arms go up, and if the player is touching
+anything but the ball (the ground, the other players, the goal frame) it jumps
+along a blend of its own up vector and world up, leaning a little toward the
+other goal, with a small flip toward the opponent. A **tap** gives a short hop
+(the first 75% of the jump); **holding** adds the other 25% a moment after
+take-off for a full jump. **Release** to swing the leg back and re-arm the
+jump; a short limiter stops bunny hopping. Standing players are heavy with a
+very low centre of mass, so they get back up on their own after a tumble.
+`W` and `↑` drive both players of a team at once; `A`/`D` and `→`/`←` still
+drive them one at a time. `P` pauses, `R` restarts, and on phones on-screen
+buttons appear. You can play against the CPU or with two people on one
+keyboard. First to 5 goals wins, and after every goal the next round may get a
+random twist: mini or big goals, a heavy or beach ball, an icy pitch, low
+gravity.
 
 ## Online multiplayer
 
@@ -86,35 +92,39 @@ To test with your own servers, run `npx peerjs --port 9000` and any MQTT
 broker with WebSockets, then open
 `index.html?peer=localhost:9000&relay=ws://localhost:8888`.
 
-## Changes to kicking and ball control compared with the Unity build
+## Where the numbers come from
 
-* **Kick on release.** In the Unity build, holding the key swung the legs,
-  and hopping (when it was enabled) happened on press. That carried the
-  player over the ball before the leg could reach it. Now press plants the
-  player and cocks the leg back. Release swings the leg and hops at the
-  same moment, so you time the kick to the moment you let go.
-* **Kick power.** The charge bar (the unused `Scroll` image in `Player.cs`)
-  now sets kick power: about 7 m/s for a tap, about 16 m/s at full charge.
-* **Kick assist.** When a swinging foot touches the ball, the ball goes
-  toward the opponent's goal with lift. Hitting the ball high gives a
-  driven shot, and hitting it low gives a chip. This replaces a random
-  bounce off a box.
-* **Leg friction** was 100 (`ActiveLeg.physicsMaterial2D`), which made the
-  ball stick to the feet. It is now 0.6.
-* **Bouncier ball.** Restitution is 0.8 (a 3 m drop bounces back to about 2 m).
-* **Heads and headers.** Players have a head, and a jumping header gets a
-  small push forward.
-* **Self-righting.** A balancing torque replaces the centre-of-mass swap
-  in `Player.cs`. Fallen players get up after about 1 s, or right away when
-  you press their key.
-* **Goals** are 3.2 m tall. The roof slopes toward the pitch, so the ball can't rest on
-  top of a goal. A ball stuck on a player for a few seconds gets nudged free.
+The mechanics are the ones decoded from the original Soccer Physics build
+(`decompiled/Assembly-CSharp.dll` in this repository; see
+`docs/why-soccer-physics-plays-better.md`): press = kick + jump + flip,
+75%/25% two-stage jump, release = relax and re-arm, 10-tick jump limiter,
+"grounded" = touching anything but the ball, body mass 45 standing / 30 in the
+air with a centre of mass far below the feet when standing, a ball that never
+stops (a small nudge below a threshold speed) and never bounces off players,
+time scale 0.85, and random round modifiers with the reference probabilities.
+
+What was tuned for this project's body size, with headless simulations in
+Node (`CFG` in `game.js` holds every value):
+
+* jump power 300 (keeper 370) instead of 375/495, giving a hop of about 1.3 m
+  on a tap and 1.5 m on a hold for a 1.9 m tall player;
+* flip torque 2 instead of 5 and angular damping 1.5, so a player lands at
+  most a little tilted and the self-righting swing does not walk it backwards;
+* every hop leans 0.45 toward the opponent (the reference only gets forward
+  motion from the flip), so mashing the button moves a player about one metre
+  per second across the pitch;
+* centre of mass 1.3 below the body centre when standing (the reference's
+  1.6 is beyond this body's feet).
+
+The previous web build used a charge-on-hold, kick-on-release scheme with a
+scripted "kick assist" that set the ball's velocity directly. That is gone:
+the ball only ever moves because something physical hit it.
 
 ## Files
 
-* `game.js`: physics, rules and CPU players. It has no DOM code, so it
-  also runs in Node for tuning (`require('./game.js')`, with `planck` on
-  `globalThis`).
+* `game.js`: physics, rules, round modifiers and CPU players. It has no DOM
+  code, so it also runs in Node for tuning (`require('./game.js')`, with
+  `planck` on `globalThis`).
 * `render.js`: canvas drawing, input, sound and the main loop.
 * `net.js`: online play: hosting, joining, snapshots and interpolation.
 * `ice-config.js`: the relay (TURN) server settings for online play.
