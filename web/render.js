@@ -13,6 +13,17 @@
     { name: 'BLUE', shirt: '#2f7fd8', dark: '#1d4f8c', shorts: '#f4f1e8', sock: '#2f7fd8', keeper: '#35b56a' },
     { name: 'RED', shirt: '#e0463c', dark: '#8f2621', shorts: '#1c1c1c', sock: '#e0463c', keeper: '#f2a93b' },
   ];
+  // three kits per team, re-rolled every round (like the reference's random outfits)
+  const KITS = [
+    [TEAM[0],
+     { shirt: '#1f9fd6', dark: '#145f84', shorts: '#1c2b3a', sock: '#f4f1e8', keeper: '#8bd13b' },
+     { shirt: '#5b4bd6', dark: '#352b85', shorts: '#f4f1e8', sock: '#5b4bd6', keeper: '#f2c94c' }],
+    [TEAM[1],
+     { shirt: '#f27d2a', dark: '#9a4a12', shorts: '#f4f1e8', sock: '#f27d2a', keeper: '#2fbf9f' },
+     { shirt: '#c62a6b', dark: '#7a1a42', shorts: '#1c1c1c', sock: '#f4f1e8', keeper: '#f2c94c' }],
+  ];
+  const kitOf = (team) => KITS[team][match && match.kits ? match.kits[team] % 3 : 0];
+  const modOf = () => (match && match.mod) || null;
   const SKIN = ['#f1c7a1', '#c98e62', '#8d5a3b', '#e8b48a'];
   const HAIR = ['#3b2a1e', '#161616', '#6b3f1f', '#d9b25c'];
   // W / Up arrow drive a whole team (keeper + striker) with one button, like the
@@ -23,6 +34,8 @@
   let mode = null;            // 'cpu' | '2p'
   let paused = false;
   let W = 0, H = 0, S = 1, dpr = 1;
+  // camera: pans with the ball on narrow screens and zooms out when the ball flies high
+  const cam = { x: 0, y: 3.3, zoom: 1 };
   const particles = [];
   const crowd = [];
   let banner = null;          // { text, sub, color, t }
@@ -32,15 +45,35 @@
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth; H = window.innerHeight;
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-    S = Math.min(W / 15.4, H / 8.6);
+    const viewW = W < H ? 9.5 : CFG.fieldHalf * 2 + 2.2;   // portrait shows part of the pitch and pans
+    S = Math.min(W / viewW, H / 8.6);
     crowd.length = 0;
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     const cols = ['#8a4b4b', '#4b6a8f', '#9a978c', '#8f7f4a', '#5d7a5f', '#6b5d80'];
     for (let i = 0; i < 520; i++) crowd.push({ x: rnd(), y: rnd(), c: cols[(rnd() * cols.length) | 0], p: rnd() * 6.28 });
   }
-  const sx = (x) => W / 2 + x * S;
-  const sy = (y) => H * 0.5 - (y - 3.3) * S;
+  const sx = (x) => W / 2 + (x - cam.x) * S * cam.zoom;
+  const sy = (y) => H * 0.5 - (y - cam.y) * S * cam.zoom;
+
+  function updateCamera(dt) {
+    let zoom = 1, x = 0;
+    if (match) {
+      const b = match.ball.getPosition();
+      // zoom out until the ball (plus some headroom) fits; keep the grass edge at the bottom
+      zoom = Math.min(1, H / (S * Math.max(0.1, b.y + 2.6)));
+      const halfView = W / (2 * S * zoom);
+      const maxPan = Math.max(0, CFG.fieldHalf + 1.1 - halfView);
+      x = Math.max(-maxPan, Math.min(maxPan, b.x));
+    }
+    const k = 1 - Math.exp(-6 * dt);
+    cam.zoom += (zoom - cam.zoom) * k;
+    cam.x += (x - cam.x) * k;
+    // keep the grass above the touch pads: lower the horizon when pads are showing
+    const pads = !touchLeft.hidden || !touchRight.hidden;
+    const margin = pads ? (W < H ? 0.3 : 0.2) : 0;
+    cam.y = -1.3 + H * (0.5 - margin) / (S * cam.zoom);
+  }
 
   // -------------------------------------------------------------- audio
   let ac = null;
@@ -70,9 +103,9 @@
     src.buffer = buf; src.connect(f).connect(g).connect(a.destination); src.start();
   }
   const sfx = {
-    kick: (p) => { noise(0.08, 0.5 + p * 0.4, 900); tone(120, 0.12, 'sine', 0.35, 60); },
+    kick: (p) => { noise(0.05 + p * 0.06, 0.25 + p * 0.7, 700 + p * 900); tone(90 + p * 60, 0.1 + p * 0.08, 'sine', 0.2 + p * 0.3, 50); },
     post: () => tone(880, 0.35, 'triangle', 0.18, 700),
-    hop: () => tone(260, 0.07, 'sine', 0.05, 380),
+    hop: () => { noise(0.04, 0.12, 1800); tone(240, 0.09, 'sine', 0.12, 420); },
     whistle: () => { tone(2300, 0.18, 'square', 0.04); setTimeout(() => tone(2300, 0.35, 'square', 0.04), 220); },
     goal: () => { noise(1.6, 0.25, 700); tone(523, 0.2, 'triangle', 0.12); setTimeout(() => tone(659, 0.2, 'triangle', 0.12), 150); setTimeout(() => tone(784, 0.4, 'triangle', 0.12), 300); },
   };
@@ -144,9 +177,9 @@
   });
 
   for (const pad of document.querySelectorAll('.pad')) {
-    const i = +pad.dataset.player;
-    const down = (e) => { e.preventDefault(); audio(); pad.classList.add('down'); pad.setPointerCapture && pad.setPointerCapture(e.pointerId); press(i); };
-    const up = (e) => { e.preventDefault(); pad.classList.remove('down'); release(i); };
+    const ids = pad.dataset.player.split(',').map(Number);
+    const down = (e) => { e.preventDefault(); audio(); pad.classList.add('down'); pad.setPointerCapture && pad.setPointerCapture(e.pointerId); for (const i of ids) press(i); };
+    const up = (e) => { e.preventDefault(); pad.classList.remove('down'); for (const i of ids) release(i); };
     pad.addEventListener('pointerdown', down);
     pad.addEventListener('pointerup', up);
     pad.addEventListener('pointercancel', up);
@@ -283,7 +316,9 @@
       match.update(now / 1000);
       handleEvents();
     } else if (match && !paused) {
-      acc += dt * CFG.timeScale;   // the match runs in slight slow motion, like the reference
+      // the match runs in slight slow motion, like the reference, and a goal starts in real slow motion
+      const slow = match.state === 'goal' && match.stateTimer < 0.6 ? 0.3 : 1;
+      acc += dt * CFG.timeScale * slow;
       let n = 0;
       while (acc >= CFG.step && n < 10) {
         if (mode === 'cpu') { cpuThink(match, 2, CFG.step); cpuThink(match, 3, CFG.step); }
@@ -302,6 +337,7 @@
       handleEvents();
     }
     updateParticles(dt);
+    updateCamera(dt);
     draw(now / 1000);
     requestAnimationFrame(frame);
   }
@@ -316,7 +352,7 @@
           particles.push({ x: b.x, y: b.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 0.35, c: '#ffffff' });
         }
       } else if (e.type === 'post') sfx.post();
-      else if (e.type === 'hop') { /* quiet */ }
+      else if (e.type === 'hop') sfx.hop();
       else if (e.type === 'whistle') {
         sfx.whistle();
         banner = e.mod ? { text: e.mod, sub: 'kick off', color: '#f2c94c', t: 0, dur: 1.6 }
@@ -369,9 +405,16 @@
   }
 
   function drawBackground(t) {
+    const mod = modOf();
     const g = ctx.createLinearGradient(0, 0, 0, sy(0));
-    g.addColorStop(0, '#6fb3e8'); g.addColorStop(1, '#cfe7f5');
+    if (mod && mod.gravity) { g.addColorStop(0, '#2b1d5e'); g.addColorStop(1, '#8f7fd0'); }
+    else if (mod && mod.ice) { g.addColorStop(0, '#9fc9e6'); g.addColorStop(1, '#eef6fb'); }
+    else { g.addColorStop(0, '#6fb3e8'); g.addColorStop(1, '#cfe7f5'); }
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    if (mod && mod.gravity) {   // a moon for low gravity
+      ctx.fillStyle = '#f4f1e8'; ctx.beginPath(); ctx.arc(W * 0.8, H * 0.12, Math.max(12, S * 0.5), 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#d9d3c4'; ctx.beginPath(); ctx.arc(W * 0.8 - S * 0.15, H * 0.12 + S * 0.1, Math.max(3, S * 0.12), 0, 6.28); ctx.fill();
+    }
 
     // stands
     const standTop = sy(6.6), standBot = sy(1.3);
@@ -379,7 +422,7 @@
     ctx.fillRect(0, standTop, W, standBot - standTop);
     ctx.fillStyle = '#2c323e';
     ctx.fillRect(0, standTop - S * 0.25, W, S * 0.25);
-    const r = Math.max(1.2, S * 0.055);
+    const r = Math.max(1.2, S * 0.055 * cam.zoom);
     const excite = banner && banner.text === 'GOAL!' && banner.t < 1.8 ? 1 : 0.2;
     for (const c of crowd) {
       const x = c.x * W, y = standTop + S * 0.2 + c.y * (standBot - standTop - S * 0.45);
@@ -396,19 +439,24 @@
     const words = ['FOOTBALL PHYSICS', 'TAP · HOP · KICK', 'FOOTBALL PHYSICS', 'PLANCK.JS'];
     for (let i = 0; i < 4; i++) ctx.fillText(words[i], W * (i + 0.5) / 4, bt + bh / 2);
 
-    // grass
+    // grass (ice on an icy pitch)
     const gy = sy(0);
-    ctx.fillStyle = '#3f9a45'; ctx.fillRect(0, bt + bh, W, gy - bt - bh);
-    const stripe = S * 1.4;
+    const ice = mod && mod.ice;
+    ctx.fillStyle = ice ? '#8fd0cf' : '#3f9a45'; ctx.fillRect(0, bt + bh, W, gy - bt - bh);
+    const stripe = S * 1.4 * cam.zoom;
     for (let i = -12; i < 12; i++) {
       if (i % 2) continue;
       ctx.fillStyle = 'rgba(255,255,255,0.05)';
       ctx.fillRect(sx(i * 1.4), bt + bh, stripe, gy - bt - bh);
     }
-    ctx.fillStyle = '#2f7a35'; ctx.fillRect(0, gy, W, H - gy);
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillStyle = ice ? '#d7f0f4' : '#2f7a35'; ctx.fillRect(0, gy, W, H - gy);
+    ctx.fillStyle = ice ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.12)';
     for (let i = -12; i < 12; i += 2) ctx.fillRect(sx(i * 1.4), gy, stripe, H - gy);
-    ctx.fillStyle = '#f4f1e8'; ctx.fillRect(sx(-CFG.fieldHalf), gy - 1, CFG.fieldHalf * 2 * S, Math.max(2, S * 0.04));
+    if (ice) {   // glints
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      for (let i = 0; i < 14; i++) { const x = sx(-CFG.fieldHalf + i * CFG.fieldHalf * 2 / 13 + 0.3), y = gy + S * 0.25 + (i % 3) * S * 0.2; ctx.fillRect(x, y, S * 0.12, 2); }
+    }
+    ctx.fillStyle = '#f4f1e8'; ctx.fillRect(sx(-CFG.fieldHalf), gy - 1, CFG.fieldHalf * 2 * S * cam.zoom, Math.max(2, S * 0.04));
     ctx.fillRect(sx(0) - 1, gy - S * 0.02, 2, S * 0.1);
   }
 
@@ -453,7 +501,7 @@
     ctx.save();
     ctx.translate(sx(p.x), sy(p.y));
     ctx.rotate(-body.getAngle());
-    ctx.scale(S, -S);          // world units, y up
+    ctx.scale(S * cam.zoom, -S * cam.zoom);          // world units, y up
     fn();
     ctx.restore();
   }
@@ -466,7 +514,7 @@
   }
 
   function drawLeg(p, leg, front) {
-    const team = TEAM[p.team];
+    const team = kitOf(p.team);
     withBody(leg.body, () => {
       const w = CFG.legW, h = CFG.legH;
       ctx.fillStyle = front ? team.shorts : shade(team.shorts);
@@ -486,7 +534,7 @@
   }
 
   function drawPlayer(p) {
-    const team = TEAM[p.team];
+    const team = kitOf(p.team);
     const shirt = p.keeper ? team.keeper : team.shirt;
     drawLeg(p, p.standLeg, false);
     withBody(p.body, () => {
@@ -536,6 +584,7 @@
     // key hint above the head
     const pos = p.body.getPosition();
     const hx = sx(pos.x), hy = sy(pos.y + 1.05);
+    if (cam.zoom < 0.75) return;   // no labels when zoomed far out
     const human = ownPlayers().includes(match.players.indexOf(p));
     if (human) {
       ctx.font = `700 ${Math.max(10, S * 0.2)}px ui-monospace, monospace`;
@@ -550,10 +599,27 @@
   function drawBall(ball) {
     const p = ball.getPosition(), r = match ? match.ballR : CFG.ballR;
     // shadow
-    const sh = Math.max(0.2, 1 - p.y / 6);
+    const sh = Math.max(0.2, 1 - p.y / 6), Z = S * cam.zoom;
     ctx.fillStyle = `rgba(0,0,0,${0.25 * sh})`;
-    ctx.beginPath(); ctx.ellipse(sx(p.x), sy(0) + 2, r * S * sh, r * S * 0.25 * sh, 0, 0, 6.28); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(sx(p.x), sy(0) + 2, r * Z * sh, r * Z * 0.25 * sh, 0, 0, 6.28); ctx.fill();
+    const kind = modOf() && modOf().ball;
     withBody(ball, () => {
+      if (kind === 'beach') {   // striped beach ball
+        const cols = ['#f2c94c', '#e0463c', '#2f7fd8', '#f4f1e8', '#35b56a', '#f27d2a'];
+        for (let i = 0; i < 6; i++) {
+          ctx.fillStyle = cols[i]; ctx.beginPath(); ctx.moveTo(0, 0);
+          ctx.arc(0, 0, r, i * Math.PI / 3, (i + 1) * Math.PI / 3); ctx.closePath(); ctx.fill();
+        }
+        ctx.fillStyle = '#f4f1e8'; ctx.beginPath(); ctx.arc(0, 0, r * 0.18, 0, 6.28); ctx.fill();
+        return;
+      }
+      if (kind === 'heavy') {   // old leather medicine ball
+        ctx.fillStyle = '#6b3f1f'; ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.28); ctx.fill();
+        ctx.strokeStyle = '#3b2210'; ctx.lineWidth = 0.03;
+        for (let i = 0; i < 4; i++) { const a = i * Math.PI / 4; ctx.beginPath(); ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); ctx.lineTo(-Math.cos(a) * r, -Math.sin(a) * r); ctx.stroke(); }
+        ctx.beginPath(); ctx.arc(0, 0, r - 0.015, 0, 6.28); ctx.stroke();
+        return;
+      }
       ctx.fillStyle = '#ffffff';
       ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.28); ctx.fill();
       ctx.fillStyle = '#1c1c1c';

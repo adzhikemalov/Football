@@ -291,12 +291,13 @@
 
   // ------------------------------------------------------------ snapshots
   const STATES = ['ready', 'play', 'goal', 'over'];
-  const HEADER = 8;   // time, state, score x2, goal height, goal back height, ball radius, modifier
+  const HEADER = 10;  // time, state, score x2, goal height, goal back height, ball radius, modifier, kit x2
   const r3 = (v) => Math.round(v * 1000) / 1000;
 
   function encode(match, events) {
     const a = [r3(match.time), STATES.indexOf(match.state), match.score[0], match.score[1],
-      r3(match.goalHeight), r3(match.goalBackHeight), r3(match.ballR), match.mod ? match.mod.id : 0];
+      r3(match.goalHeight), r3(match.goalBackHeight), r3(match.ballR), match.mod ? match.mod.id : 0,
+      match.kits ? match.kits[0] : 0, match.kits ? match.kits[1] : 0];
     const push = (b) => { const p = b.getPosition(); a.push(r3(p.x), r3(p.y), r3(b.getAngle())); };
     push(match.ball);
     for (const p of match.players) {
@@ -327,6 +328,7 @@
     const view = {
       remote: true, time: 0, state: 'ready', score: [0, 0], events: [],
       goalHeight: G.CFG.goalHeight, goalBackHeight: G.CFG.goalBackHeight, ballR: G.CFG.ballR, modName: '',
+      mod: G.MODS[0], kits: [0, 0], stateTimer: 0,
       ball: proxy(),
       players: meta.map(([team, keeper, key]) => ({
         team, keeper, key, dir: team === 0 ? 1 : -1, held: false,
@@ -345,7 +347,9 @@
       view.state = STATES[s[1]] || 'play';
       view.score = [s[2], s[3]];
       view.goalHeight = s[4]; view.goalBackHeight = s[5]; view.ballR = s[6];
-      view.modName = (G.MODS[s[7]] || G.MODS[0]).name;
+      view.mod = G.MODS[s[7]] || G.MODS[0];
+      view.modName = view.mod.name;
+      view.kits = [s[8] || 0, s[9] || 0];
       for (const e of msg.e || []) {
         const ev = Object.assign({}, e);
         if (e.p != null) ev.p = view.players[e.p];

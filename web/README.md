@@ -106,15 +106,26 @@ time scale 0.85, and random round modifiers with the reference probabilities.
 What was tuned for this project's body size, with headless simulations in
 Node (`CFG` in `game.js` holds every value):
 
-* jump power 300 (keeper 370) instead of 375/495, giving a hop of about 1.3 m
-  on a tap and 1.5 m on a hold for a 1.9 m tall player;
+* jump power 250 (keeper 310) instead of 375/495: a tap hops about 1.1 m and
+  a hold about 1.8 m for a 1.9 m tall player;
+* contacts are ignored for 0.12 s after take-off and a contact keeps the
+  player grounded for 0.08 s. The reference needs a "DJFix" trigger for the
+  same reason: the feet still touch the ground a tick after the impulse, and
+  without this a press at the top of a hop jumps again in mid-air;
+* a fallen player (more than 50 degrees over) gets a righting torque, and a
+  press while down adds a righting impulse and a small hop;
+* the pitch is 11.2 m wide (goals 9.6 m apart) instead of 14 m, keepers start
+  on their line and strikers 1.4 m from the centre, so the ball is a hop away;
 * flip torque 2 instead of 5 and angular damping 1.5, so a player lands at
-  most a little tilted and the self-righting swing does not walk it backwards;
+  most a little tilted;
 * every hop leans 0.45 toward the opponent (the reference only gets forward
-  motion from the flip), so mashing the button moves a player about one metre
-  per second across the pitch;
+  motion from the flip);
 * centre of mass 1.3 below the body centre when standing (the reference's
   1.6 is beyond this body's feet).
+
+Measured in a 10 minute CPU vs CPU match after these changes: about a third
+of presses touch the ball within 0.35 s (was 15%), a touch every 0.6 s (was
+1.3 s), players down 9 to 17% of the time (was 25%), 7 to 9 goals a minute.
 
 The previous web build used a charge-on-hold, kick-on-release scheme with a
 scripted "kick assist" that set the ball's velocity directly. That is gone:
@@ -125,7 +136,10 @@ the ball only ever moves because something physical hit it.
 * `game.js`: physics, rules, round modifiers and CPU players. It has no DOM
   code, so it also runs in Node for tuning (`require('./game.js')`, with
   `planck` on `globalThis`).
-* `render.js`: canvas drawing, input, sound and the main loop.
+* `render.js`: canvas drawing, input, sound and the main loop. The camera
+  pans with the ball on narrow screens and zooms out when it flies high; a
+  goal starts in slow motion; kits, the ball and the pitch change with the
+  round modifier.
 * `net.js`: online play: hosting, joining, snapshots and interpolation.
 * `ice-config.js`: the relay (TURN) server settings for online play.
 * `planck.min.js`: planck.js 1.4.2 (MIT), included in the repo so the game

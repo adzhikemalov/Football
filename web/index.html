@@ -62,6 +62,9 @@
     border: 2px solid rgba(255,255,255,0.5); opacity: 0.8; }
   .pad.blue { background: rgba(47,127,216,0.55); } .pad.red { background: rgba(224,70,60,0.55); }
   .pad.down { opacity: 1; transform: scale(0.94); }
+  .pad.big { width: 96px; height: 96px; font-size: 15px; border-width: 3px; }
+  .touch { align-items: flex-end; }
+  @media (orientation: portrait) { .pad:not(.big) { display: none; } }
 </style>
 </head>
 <body>
@@ -78,7 +81,7 @@
       <div class="team blue"><b>Blue</b>Both <kbd>W</kbd><br>Keeper <kbd>A</kbd> · Striker <kbd>D</kbd></div>
       <div class="team red"><b>Red</b>Both <kbd>↑</kbd><br>Keeper <kbd>→</kbd> · Striker <kbd>←</kbd></div>
     </div>
-    <p><kbd>P</kbd> pause · <kbd>R</kbd> restart · touch buttons appear on phones</p>
+    <p><kbd>P</kbd> pause · <kbd>R</kbd> restart · touch buttons appear on phones (hold the phone sideways)</p>
     <div class="btns">
       <button id="btn-cpu">1 player vs CPU</button>
       <button id="btn-2p" class="secondary">2 players, one keyboard</button>
@@ -113,20 +116,22 @@
 </div>
 
 <div class="touch left" id="touch-left" hidden>
+  <div class="pad blue big" data-player="0,1">TEAM<br>W</div>
   <div class="pad blue" data-player="0">KEEPER<br>A</div>
   <div class="pad blue" data-player="1">STRIKER<br>D</div>
 </div>
 <div class="touch right" id="touch-right" hidden>
   <div class="pad red" data-player="3">STRIKER<br>←</div>
   <div class="pad red" data-player="2">KEEPER<br>→</div>
+  <div class="pad red big" data-player="2,3">TEAM<br>↑</div>
 </div>
 
 <script src="planck.min.js"></script>
 <script src="peerjs.min.js"></script>
 <script src="mqtt.min.js"></script>
-<script src="game.js?v=202611042330"></script>
-<script src="ice-config.js?v=202611042330"></script>
-<script src="net.js?v=202611042330"></script>
-<script src="render.js?v=202611042330"></script>
+<script src="game.js?v=202611050010"></script>
+<script src="ice-config.js?v=202611050010"></script>
+<script src="net.js?v=202611050010"></script>
+<script src="render.js?v=202611050010"></script>
 </body>
 </html>

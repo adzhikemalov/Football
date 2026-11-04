@@ -115,3 +115,11 @@ players drift to those games.
 
 Items 1 to 3 are measurable with the scripts in the session scratchpad and should be
 re-measured after each change: presses connecting, touch gap, fallen share, tap vs hold.
+
+## 5. Done since this analysis
+
+Items 1 to 7 are implemented in `web/` (see `web/README.md` for the numbers): jump grace
+and contact memory, retuned jump power, righting torque plus press-to-get-up, a smaller
+pitch with keepers on their line, visible modifiers (ice, moon, ball art) and kits re-rolled
+every round, hop and impact-scaled sounds, a slow-motion start to every goal, a team pad per
+side on touch screens, and a camera that pans on narrow screens and zooms out for high balls.
