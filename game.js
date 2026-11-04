@@ -28,14 +28,16 @@
     gravity: -20,                 // Physics2DSettings.m_Gravity
     step: 1 / 120,
     timeScale: 0.85,              // the reference runs at 0.85: the chaos stays readable
-    fieldHalf: 7,
+    fieldHalf: 5.6,               // half width of the pitch: the ball is always a hop or two away
     ceiling: 12,
-    goalMouthX: 6.15,             // front of the goal (crossbar)
+    goalMouthX: 4.8,              // front of the goal (crossbar)
+    keeperX: 4.2,                 // keepers start on their line
+    strikerX: 1.4,
     goalHeight: 3.0,
     goalBackHeight: 3.5,
     winScore: 5,
     readyTime: 1.0,               // s the ball hangs in the air at kick-off
-    goalTime: 1.8,                // s of celebration before the next round
+    goalTime: 1.5,                // s of celebration before the next round (the first part in slow motion)
 
     bodyW: 0.5, bodyH: 1.0,       // Player BoxCollider2D
     legW: 0.25, legH: 0.75,       // leg BoxCollider2D
@@ -53,11 +55,17 @@
     startWobble: 0.45,            // rad/s random spin at spawn
 
     // jump (reference: power 375 field / 495 keeper, 75% now + 25% later)
-    jumpPowerPlayer: 300,
-    jumpPowerKeeper: 370,
+    jumpPowerPlayer: 250,
+    jumpPowerKeeper: 310,
     jumpFirstShare: 0.75,
     jumpSecondDelay: 0.05,        // s (3 ticks at 60 Hz)
     jumpLimiter: 0.17,            // s (10 ticks at 60 Hz)
+    jumpGrace: 0.12,              // s after take-off during which contacts do not count (no double jump)
+    contactMemory: 0.08,          // s a contact keeps the player grounded (coyote time)
+    fallenAngle: 50,              // degrees: beyond this the player is down
+    getUpTorque: 160,             // righting torque while down
+    getUpImpulse: 20,             // angular impulse when the button is pressed while down
+    getUpHop: 3.5,                // m/s upward hop when the button is pressed while down
     jumpTorque: 2,                // angular impulse toward the opponent
     jumpForward: 0.45,            // forward lean of every hop (world up is 1.2, body up 1.3)
     maxPlayerSpeed: 25,           // sanity cap only
@@ -116,6 +124,7 @@
       lastScorer: -1,
       mod: MODS[0],
       modName: '',
+      kits: [0, 0],         // kit variant per team, re-rolled every round
       goalHeight: CFG.goalHeight,
       goalBackHeight: CFG.goalBackHeight,
       ballR: CFG.ballR,
@@ -130,6 +139,7 @@
       const mod = match.round > 0 ? rollModifier(rnd) : MODS[0];
       match.mod = mod;
       match.modName = mod.name;
+      match.kits = [Math.floor(rnd() * 3) % 3, Math.floor(rnd() * 3) % 3];
       const goalScale = mod.goal || 1;
       match.goalHeight = CFG.goalHeight * goalScale;
       match.goalBackHeight = CFG.goalBackHeight * goalScale;
@@ -186,10 +196,10 @@
       const add = (team, keeper, x, key) => {
         match.players.push(createPlayer(world, team, keeper, x, key, -(group++)));
       };
-      add(0, true, -5.0, 'A');
-      add(0, false, -1.9, 'D');
-      add(1, true, 5.0, '→');
-      add(1, false, 1.9, '←');
+      add(0, true, -CFG.keeperX, 'A');
+      add(0, false, -CFG.strikerX, 'D');
+      add(1, true, CFG.keeperX, '→');
+      add(1, false, CFG.strikerX, '←');
 
       world.on('begin-contact', onBeginContact);
       world.on('end-contact', onEndContact);
@@ -258,6 +268,7 @@
         groundedMass, airborneMass,
         held: false, grounded: false, released: true, jumped: false,
         secondDone: false, secondTimer: 0, limiter: 0, airborne: false,
+        grace: 0, lastContact: -1, down: false,
         pendingPress: false, pendingRelease: false,
       };
       for (const part of [body, kickLeg.body, standLeg.body]) part.setUserData({ player: p });
@@ -347,21 +358,39 @@
 
     function drivePlayer(p, dt) {
       const body = p.body;
-      // Like the reference's Grounder: a contact sets grounded, only a jump clears it.
-      // Being knocked into the air therefore keeps the heavy, stable body.
-      if (isGrounded(p)) p.grounded = true;
+      // A contact keeps the player grounded for a short while (so a hop still works from
+      // the lip of a landing), but contacts are ignored right after take-off: the feet
+      // still touch the ground for a tick or two and would otherwise re-arm a mid-air jump.
+      if (p.grace > 0) p.grace -= dt;
+      if (p.grace <= 0 && isGrounded(p)) p.lastContact = match.time;
+      p.grounded = p.grace <= 0 && p.lastContact >= 0 && match.time - p.lastContact <= CFG.contactMemory;
       if (p.limiter > 0) p.limiter -= dt;
+
+      const angle = wrapAngle(body.getAngle());
+      p.down = p.grounded && Math.abs(angle) > CFG.fallenAngle * DEG;
+      if (p.down) {
+        // a fallen player rolls back up on its own ...
+        body.applyTorque(-Math.sign(angle) * CFG.getUpTorque, true);
+      }
 
       if (p.pendingPress) {
         p.pendingPress = false;
         kickLegs(p);
-        if (!p.jumped && p.grounded && p.released && p.limiter <= 0) {
+        if (p.down && p.limiter <= 0) {
+          // ... and faster when the button is pressed
+          body.applyAngularImpulse(-Math.sign(angle) * CFG.getUpImpulse, true);
+          body.applyLinearImpulse(Vec2(0, CFG.getUpHop * body.getMass()), body.getWorldCenter(), true);
+          p.limiter = CFG.jumpLimiter;
+          match.events.push({ type: 'hop', p });
+        } else if (!p.jumped && p.grounded && p.released && p.limiter <= 0) {
           // switch to the airborne mass first so the flip torque acts on the lighter body
           body.setMassData(p.airborneMass);
           p.airborne = true;
           jumpImpulse(p, CFG.jumpFirstShare);
           body.applyAngularImpulse(-CFG.jumpTorque * p.dir, true);
           p.grounded = false;
+          p.grace = CFG.jumpGrace;
+          p.lastContact = -1;
           p.jumped = true;
           p.secondDone = false;
           p.secondTimer = CFG.jumpSecondDelay;
