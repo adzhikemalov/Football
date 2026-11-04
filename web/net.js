@@ -290,22 +290,25 @@
   }
 
   // ------------------------------------------------------------ snapshots
-  const STATES = ['play', 'goal', 'over'];
+  const STATES = ['ready', 'play', 'goal', 'over'];
+  const HEADER = 8;   // time, state, score x2, goal height, goal back height, ball radius, modifier
   const r3 = (v) => Math.round(v * 1000) / 1000;
 
   function encode(match, events) {
-    const a = [r3(match.time), STATES.indexOf(match.state), match.score[0], match.score[1]];
+    const a = [r3(match.time), STATES.indexOf(match.state), match.score[0], match.score[1],
+      r3(match.goalHeight), r3(match.goalBackHeight), r3(match.ballR), match.mod ? match.mod.id : 0];
     const push = (b) => { const p = b.getPosition(); a.push(r3(p.x), r3(p.y), r3(b.getAngle())); };
     push(match.ball);
     for (const p of match.players) {
       push(p.body); push(p.kickLeg.body); push(p.standLeg.body);
-      a.push(p.held ? 1 : 0, r3(p.charge));
+      a.push(p.held ? 1 : 0);
     }
     const ev = events.map((e) => {
       const o = { type: e.type };
       if (e.p) o.p = match.players.indexOf(e.p);
       if (e.power != null) o.power = r3(e.power);
       if (e.team != null) o.team = e.team;
+      if (e.mod) o.mod = e.mod;
       return o;
     });
     return { t: 's', s: a, e: ev };
@@ -320,11 +323,13 @@
       getAngularVelocity() { return 0; },
     });
     const meta = [[0, true, 'A'], [0, false, 'D'], [1, true, '→'], [1, false, '←']];
+    const G = window.FootballGame;
     const view = {
-      remote: true, time: 0, state: 'play', score: [0, 0], events: [],
+      remote: true, time: 0, state: 'ready', score: [0, 0], events: [],
+      goalHeight: G.CFG.goalHeight, goalBackHeight: G.CFG.goalBackHeight, ballR: G.CFG.ballR, modName: '',
       ball: proxy(),
       players: meta.map(([team, keeper, key]) => ({
-        team, keeper, key, dir: team === 0 ? 1 : -1, held: false, charge: 0,
+        team, keeper, key, dir: team === 0 ? 1 : -1, held: false,
         body: proxy(), kickLeg: { body: proxy() }, standLeg: { body: proxy() },
       })),
       buffer: [], offset: null, delay: INTERP_DELAY,
@@ -339,6 +344,8 @@
       while (view.buffer.length > 30) view.buffer.shift();
       view.state = STATES[s[1]] || 'play';
       view.score = [s[2], s[3]];
+      view.goalHeight = s[4]; view.goalBackHeight = s[5]; view.ballR = s[6];
+      view.modName = (G.MODS[s[7]] || G.MODS[0]).name;
       for (const e of msg.e || []) {
         const ev = Object.assign({}, e);
         if (e.p != null) ev.p = view.players[e.p];
@@ -359,11 +366,11 @@
       const lerpA = (i) => { const d = Math.atan2(Math.sin(b[i] - a[i]), Math.cos(b[i] - a[i])); return a[i] + d * f; };
       const set = (o, i) => { o.x = lerp(i); o.y = lerp(i + 1); o.a = lerpA(i + 2); };
       view.time = lerp(0);
-      set(view.ball, 4);
+      set(view.ball, HEADER);
       view.players.forEach((p, k) => {
-        const base = 7 + k * 11;
+        const base = HEADER + 3 + k * 10;
         set(p.body, base); set(p.kickLeg.body, base + 3); set(p.standLeg.body, base + 6);
-        p.held = !!b[base + 9]; p.charge = b[base + 10];
+        p.held = !!b[base + 9];
       });
     };
     return view;

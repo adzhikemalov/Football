@@ -114,3 +114,9 @@ and disabled by default.
 Not yet verified in the Unity editor (this was written without one): the kick direction sign
 of the mirrored right-hand team, and the absolute jump height and flip torque, which depend on
 this project's body size. Both are single inspector fields on `Player` and `Leg`.
+
+## 6. The browser version
+
+The same model is now in `web/game.js` (planck.js), which is the build published on GitHub
+Pages. There the numbers could be tuned with headless simulations in Node; the values that
+differ from the reference and why are listed in `web/README.md`.
