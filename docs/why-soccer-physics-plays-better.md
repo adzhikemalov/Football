@@ -99,3 +99,18 @@ unpredictable action, and a round ends within seconds.
 6. Sounds, camera follow, shadows, simple random AI.
 7. Only then revisit networking (physics games need lockstep or server-authoritative
    simulation with interpolation; per-frame JSON state will always feel laggy).
+
+## 5. What has been implemented since this analysis
+
+Steps 1 to 6 of the list above are in the code now (see `README.md`): goal triggers, score
+and first-to-5 with reset; the press/release jump-and-kick model with the reference numbers;
+mass and centre-of-mass switching; any-contact grounding with release requirement and
+10-tick limiter; ground bounce 0 and sane leg friction (assigned at runtime, the binary
+material assets are untouched); ball no-bounce on player contact and the always-move nudge;
+time scale 0.85; random starting wobble; random round modifiers; one key per team with an
+optional two-button mode; camera follow; a random CPU for team 2. Networking is left as is
+and disabled by default.
+
+Not yet verified in the Unity editor (this was written without one): the kick direction sign
+of the mirrored right-hand team, and the absolute jump height and flip torque, which depend on
+this project's body size. Both are single inspector fields on `Player` and `Leg`.

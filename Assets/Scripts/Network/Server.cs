@@ -6,6 +6,8 @@ using UnityEngine.Networking.NetworkSystem;
 
 public class Server : MonoBehaviour
 {
+    [Tooltip("The server only starts when this is on. Local play does not need it.")]
+    public bool StartOnAwake = false;
     public int ServerPort = 9999;
     public GameObject PlayerPrefab;
     public GameObject GoalKeeperPrefab;
@@ -22,6 +24,11 @@ public class Server : MonoBehaviour
 
     public void Start()
     {
+        if (!StartOnAwake)
+        {
+            enabled = false;
+            return;
+        }
         _players = new List<PlayerData>();
         _server = new NetworkServerSimple();
         _server.RegisterHandler(MsgType.Connect, OnConnect);
@@ -39,12 +46,13 @@ public class Server : MonoBehaviour
             {
                 if (message.MessageContent == "A")
                 {
-                    _players[i].Player.PressedJump = true;
+                    _players[i].Player.Press();
+                    if (_players[i].GoalKeeper != null) _players[i].GoalKeeper.Press();
                 }
                 if (message.MessageContent == "B")
                 {
-                    _players[i].Player.PressedJump = false;
-                    _players[i].Player.JumpReleased = true;
+                    _players[i].Player.Release();
+                    if (_players[i].GoalKeeper != null) _players[i].GoalKeeper.Release();
                 }
             }
         }
@@ -72,26 +80,20 @@ public class Server : MonoBehaviour
 
     private void OnDisconnect(NetworkMessage netmsg)
     {
-        if (_players.Count > 1)
-        {
-            Debug.Log("Full");
-            return;
-        }
-
-        for (int i = 0; i < _players.Count; i++)
+        for (int i = _players.Count - 1; i >= 0; i--)
         {
             var player = _players[i];
             if (player.Connection.connectionId == netmsg.conn.connectionId)
             {
-                RemovePlayer(_players[i]);
+                RemovePlayer(player);
             }
         }
     }
 
     private void RemovePlayer(PlayerData player)
     {
-        Destroy(player.Player.gameObject);
-        Destroy(player.GoalKeeper.gameObject);
+        if (player.Player != null) Destroy(player.Player.gameObject);
+        if (player.GoalKeeper != null) Destroy(player.GoalKeeper.gameObject);
         _players.Remove(player);
     }
 
@@ -102,12 +104,17 @@ public class Server : MonoBehaviour
         var playerScr = player.GetComponent<Player>();
         playerScr.Id = netmsg.conn.connectionId;
 
-        var goalKeeper = Instantiate(GoalKeeperPrefab);
-        var goalKeeperScr = goalKeeper.GetComponent<Player>();
-        goalKeeper.transform.position = _playerSwap ? GoalKeeperSpawnPoint1.transform.position : GoalKeeperSpawnPoint2.transform.position;
-        goalKeeperScr.Id = netmsg.conn.connectionId;
+        Player goalKeeperScr = null;
+        if (GoalKeeperPrefab != null)
+        {
+            var goalKeeper = Instantiate(GoalKeeperPrefab);
+            goalKeeperScr = goalKeeper.GetComponent<Player>();
+            goalKeeper.transform.position = _playerSwap ? GoalKeeperSpawnPoint1.transform.position : GoalKeeperSpawnPoint2.transform.position;
+            goalKeeperScr.Id = netmsg.conn.connectionId;
+            goalKeeperScr.Goalkeper = true;
+        }
 
-        _players.Add(new PlayerData{Connection = netmsg.conn, Id = netmsg.conn.connectionId, Player = playerScr});
+        _players.Add(new PlayerData{Connection = netmsg.conn, Id = netmsg.conn.connectionId, Player = playerScr, GoalKeeper = goalKeeperScr});
         _playerSwap = !_playerSwap;
     }
 

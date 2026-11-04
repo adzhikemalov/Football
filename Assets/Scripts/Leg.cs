@@ -1,88 +1,85 @@
-﻿using System;
 using UnityEngine;
-using System.Collections;
-using System.Reflection;
-using System.Runtime.CompilerServices;
 
+/// <summary>
+/// One leg of a player. The owning <see cref="Player"/> configures it; it only drives
+/// its HingeJoint2D motor and reports ground contacts back to the owner.
+///
+/// Motor speeds follow the reference game: the kicking leg swings forward fast while the
+/// button is held and returns at half speed after release; the standing leg does a small
+/// counter-swing the other way so the body stays balanced.
+/// </summary>
 public class Leg : MonoBehaviour
 {
-    public bool IsActive;
+    [Header("Motor (degrees per second)")]
+    public float MaxMotorTorque = 700f;
+    public float KickSpeed = 800f;
+    public float ReturnSpeed = 400f;
+    public float BackLegSpeed = 300f;
+
+    [Header("Limits (degrees)")]
+    public float KickLimit = 90f;
+    public float BackLegLimit = 6f;
+
+    [Header("State (set by Player)")]
+    public bool IsKickLeg;
     public bool Flip;
-    public int MaxMotorTorque;
-    public int MotorSpeed;
-    private bool _onGround;
+
+    private Player _owner;
     private HingeJoint2D _joint;
-    private JointMotor2D _motorHit;
-    private JointMotor2D _motorIdle;
-    private JointAngleLimits2D _activeLimits;
-    private JointAngleLimits2D _passiveLimits;
-    public bool isHit;
+    private float _dir = -1f; // kick direction sign: -1 for the left team, +1 for the mirrored right team
 
-    public bool OnGround {
-        get
-        {
-            return _onGround;
-        }
-    }
-
-    public void OnCollisionEnter2D(Collision2D collision)
+    public void Configure(Player owner, bool isKickLeg, bool flip)
     {
-        if (collision.gameObject.tag == "Grass")
-        {
-            _onGround = true;
-        }
-    }
-
-    public void OnCollisionExit2D(Collision2D collision)
-    {
-        if (collision.gameObject.tag == "Grass")
-        {
-            _onGround = false;
-        }
-    }
-
-
-    void Start()
-    {
-        _activeLimits = new JointAngleLimits2D { min = Flip ? 90 : -90, max = 0 };
-        _passiveLimits = new JointAngleLimits2D{min = 0, max = 0};
+        _owner = owner;
+        IsKickLeg = isKickLeg;
+        Flip = flip;
+        _dir = flip ? 1f : -1f;
 
         _joint = GetComponent<HingeJoint2D>();
-        if (IsActive)
+        if (_joint == null) return;
+
+        _joint.useLimits = true;
+        _joint.useMotor = true;
+
+        var limits = new JointAngleLimits2D();
+        if (isKickLeg)
         {
-            _joint.limits = _activeLimits;
-
-            _motorHit = new JointMotor2D();
-            _motorHit.motorSpeed = Flip ? MotorSpeed : -MotorSpeed;
-            _motorHit.maxMotorTorque = MaxMotorTorque;
-
-            _motorIdle = new JointMotor2D();
-            _motorIdle.motorSpeed = Flip ? -MotorSpeed : MotorSpeed; ;
-            _motorIdle.maxMotorTorque = MaxMotorTorque;
+            limits.min = flip ? 0f : -KickLimit;
+            limits.max = flip ? KickLimit : 0f;
         }
         else
         {
-            _joint.limits = _passiveLimits;
-
-            _motorHit = new JointMotor2D();
-            _motorHit.motorSpeed = MotorSpeed;
-            _motorHit.maxMotorTorque = MaxMotorTorque;
-
-            _motorIdle = new JointMotor2D();
-            _motorIdle.motorSpeed = -MotorSpeed;
-            _motorIdle.maxMotorTorque = MaxMotorTorque;
+            limits.min = -BackLegLimit;
+            limits.max = BackLegLimit;
         }
-    }
-    
-    public void Hit()
-    {
-        isHit = true;
-        _joint.motor = _motorHit;
+        _joint.limits = limits;
+
+        Relax();
     }
 
-    public void StopHit()
+    /// <summary>Button pressed: swing the kicking leg forward, the standing leg slightly back.</summary>
+    public void Kick()
     {
-        isHit = false;
-        _joint.motor = _motorIdle;
+        SetMotor(IsKickLeg ? KickSpeed * _dir : -BackLegSpeed * _dir);
+    }
+
+    /// <summary>Button released: bring the legs back at half speed.</summary>
+    public void Relax()
+    {
+        SetMotor(IsKickLeg ? -ReturnSpeed * _dir : BackLegSpeed * _dir);
+    }
+
+    private void SetMotor(float speed)
+    {
+        if (_joint == null) return;
+        var motor = new JointMotor2D();
+        motor.motorSpeed = speed;
+        motor.maxMotorTorque = MaxMotorTorque;
+        _joint.motor = motor;
+    }
+
+    void OnCollisionStay2D(Collision2D collision)
+    {
+        if (_owner != null) _owner.ReportContact(collision);
     }
 }
